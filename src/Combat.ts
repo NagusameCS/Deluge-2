@@ -5,7 +5,8 @@ export const CombatAction = {
     Attack: 0,
     Defend: 1,
     Dodge: 2,
-    None: 3
+    Skill: 3,
+    None: 4
 } as const;
 
 export type CombatAction = typeof CombatAction[keyof typeof CombatAction];
@@ -54,7 +55,7 @@ export class CombatSystem {
         this.log.push(`Combat started with ${enemy.name}!`);
     }
 
-    handleInput(action: CombatAction) {
+    handleInput(action: CombatAction, skillIndex?: number) {
         let move: CombatMove | null = null;
         if (action === CombatAction.Attack) {
             move = { name: 'Slash', action: CombatAction.Attack, damageMultiplier: 1, speed: 1 };
@@ -62,13 +63,22 @@ export class CombatSystem {
             move = { name: 'Block', action: CombatAction.Defend, damageMultiplier: 0, speed: 2 };
         } else if (action === CombatAction.Dodge) {
             move = { name: 'Dodge', action: CombatAction.Dodge, damageMultiplier: 0, speed: 2 };
+        } else if (action === CombatAction.Skill && skillIndex !== undefined) {
+            const skill = this.player.skills[skillIndex];
+            if (skill && skill.currentCooldown <= 0 && this.player.stats.mana >= skill.cost) {
+                move = { name: skill.name, action: CombatAction.Skill, damageMultiplier: 1.5, speed: 1 }; // Skills are strong
+                this.player.stats.mana -= skill.cost;
+                skill.currentCooldown = skill.cooldown;
+            } else {
+                this.log.push("Cannot use skill (Cooldown or Mana)");
+                return;
+            }
         }
 
         if (move) {
             this.performAction(move);
         }
     }
-
     endCombat() {
         this.isActive = false;
     }
@@ -127,7 +137,7 @@ export class CombatSystem {
         let enemyDamage = 0;
 
         // Player attacking
-        if (this.playerAction.action === CombatAction.Attack) {
+        if (this.playerAction.action === CombatAction.Attack || this.playerAction.action === CombatAction.Skill) {
             if (this.enemyAction.action === CombatAction.Defend) {
                 this.log.push("Enemy blocked your attack!");
                 enemyDamage = this.player.stats.attack * 0.2;
@@ -135,7 +145,9 @@ export class CombatSystem {
                 this.log.push("Enemy dodged your attack!");
                 enemyDamage = 0;
             } else {
-                enemyDamage = this.player.stats.attack * this.playerAction.damageMultiplier;
+                let dmg = this.player.stats.attack * this.playerAction.damageMultiplier;
+                if (this.playerAction.name === 'Fireball') dmg += this.player.stats.fireDamage;
+                enemyDamage = dmg;
                 this.addSlash(this.enemyPos.x, this.enemyPos.y);
             }
         }

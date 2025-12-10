@@ -14,6 +14,16 @@ export interface Stats {
     skillPoints: number;
     critChance: number; // 0-1
     dodgeChance: number; // 0-1
+    // Rune stats
+    fireDamage: number;
+    iceDamage: number;
+    lifesteal: number;
+}
+
+export interface Rune {
+    name: string;
+    description: string;
+    apply: (stats: Stats) => void;
 }
 
 export interface Buff {
@@ -35,21 +45,29 @@ export interface Skill {
 export class Entity {
     x: number;
     y: number;
+    char: string;
     color: string;
-    symbol: string;
     name: string;
     stats: Stats;
-    isDead: boolean = false;
     buffs: Buff[] = [];
+    isDead: boolean = false;
+
     skills: Skill[] = [];
 
-    constructor(x: number, y: number, color: string, symbol: string, name: string, stats: Stats) {
+    constructor(x: number, y: number, char: string, color: string, name: string) {
         this.x = x;
         this.y = y;
+        this.char = char;
         this.color = color;
-        this.symbol = symbol;
         this.name = name;
-        this.stats = stats;
+        this.stats = {
+            hp: 100, maxHp: 100,
+            mana: 50, maxMana: 50,
+            attack: 10, defense: 0,
+            xp: 0, level: 1, skillPoints: 0,
+            critChance: 0.05, dodgeChance: 0.05,
+            fireDamage: 0, iceDamage: 0, lifesteal: 0
+        };
     }
 
     move(dx: number, dy: number) {
@@ -102,19 +120,13 @@ export class Entity {
 
 export class Player extends Entity {
     constructor(x: number, y: number) {
-        super(x, y, '#00f', '@', 'Player', {
-            hp: 50,
-            maxHp: 50,
-            mana: 30,
-            maxMana: 30,
-            attack: 5,
-            defense: 1,
-            xp: 0,
-            level: 1,
-            skillPoints: 0,
-            critChance: 0.05,
-            dodgeChance: 0.05
-        });
+        super(x, y, '@', '#00f', 'Player');
+        this.stats.hp = 50;
+        this.stats.maxHp = 50;
+        this.stats.mana = 30;
+        this.stats.maxMana = 30;
+        this.stats.attack = 5;
+        this.stats.defense = 1;
 
         this.skills.push({
             id: 'heal',
@@ -153,37 +165,23 @@ export class Enemy extends Entity {
 
     constructor(x: number, y: number, difficulty: number) {
         const isBoss = Math.random() < 0.05;
-        super(x, y, isBoss ? '#800080' : '#f00', isBoss ? 'B' : 'E', isBoss ? 'Boss Orc' : 'Orc', {
-            hp: 10 + (difficulty * 5) + (isBoss ? 50 : 0),
-            maxHp: 10 + (difficulty * 5) + (isBoss ? 50 : 0),
-            mana: 0,
-            maxMana: 0,
-            attack: 3 + difficulty + (isBoss ? 5 : 0),
-            defense: Math.floor(difficulty / 2),
-            xp: 10 + (difficulty * 5) + (isBoss ? 100 : 0),
-            level: difficulty,
-            skillPoints: 0,
-            critChance: 0.05,
-            dodgeChance: 0.05
-        });
+        super(x, y, isBoss ? 'B' : 'E', isBoss ? '#800080' : '#f00', isBoss ? 'Boss Orc' : 'Orc');
+
+        this.stats.hp = 10 + (difficulty * 5) + (isBoss ? 50 : 0);
+        this.stats.maxHp = this.stats.hp;
+        this.stats.attack = 3 + difficulty + (isBoss ? 5 : 0);
+        this.stats.defense = Math.floor(difficulty / 2);
+        this.stats.xp = 10 + (difficulty * 5) + (isBoss ? 100 : 0);
+        this.stats.level = difficulty;
     }
 }
 
 export class DungeonCore extends Entity {
     constructor(x: number, y: number) {
-        super(x, y, '#0ff', 'C', 'Dungeon Core', {
-            hp: 100,
-            maxHp: 100,
-            mana: 0,
-            maxMana: 0,
-            attack: 0,
-            defense: 5,
-            xp: 500,
-            level: 99,
-            skillPoints: 0,
-            critChance: 0,
-            dodgeChance: 0
-        });
+        super(x, y, 'C', '#0ff', 'Dungeon Core');
+        this.stats.defense = 5;
+        this.stats.xp = 500;
+        this.stats.level = 99;
     }
 }
 
@@ -194,6 +192,7 @@ export class Item {
     color: string;
     type: ItemType;
     value: number;
+    runes: Rune[] = [];
 
     constructor(x: number, y: number, name: string, color: string, type: ItemType, value: number) {
         this.x = x;

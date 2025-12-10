@@ -6,6 +6,14 @@ import { MAP_WIDTH, MAP_HEIGHT, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from
 import { CombatSystem, CombatAction } from './Combat';
 import { aStar } from './Pathfinding';
 
+export const GameState = {
+    Map: 0,
+    Combat: 1,
+    LevelUp: 2
+} as const;
+
+export type GameState = typeof GameState[keyof typeof GameState];
+
 export class Game {
     map!: GameMap;
     player!: Player;
@@ -18,6 +26,7 @@ export class Game {
     logs: string[] = [];
     floor: number = 1;
     turnCounter: number = 0;
+    state: GameState = GameState.Map;
 
     constructor() {
         this.renderer = new Renderer('gameCanvas', VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
@@ -119,6 +128,7 @@ export class Game {
     startCombat(enemy: Enemy | DungeonCore) {
         if (enemy instanceof Enemy) {
             this.combatSystem = new CombatSystem(this.player, enemy);
+            this.state = GameState.Combat;
             this.log(`Combat started with ${enemy.name}!`);
         } else {
             // DungeonCore combat might be different or same? 
@@ -140,21 +150,39 @@ export class Game {
             return;
         }
 
-        if (this.combatSystem && this.combatSystem.isActive) {
+        if (this.state === GameState.LevelUp) {
+            if (key === '1') { this.player.stats.maxHp += 10; this.player.stats.hp += 10; }
+            else if (key === '2') { this.player.stats.maxMana += 10; this.player.stats.mana += 10; }
+            else if (key === '3') { this.player.stats.attack += 2; }
+            else if (key === '4') { this.player.stats.defense += 1; }
+            else return;
+
+            this.player.stats.skillPoints--; // Using skillPoints as generic stat points for now
+            if (this.player.stats.skillPoints <= 0) {
+                this.state = GameState.Map;
+                this.log("Stats upgraded!");
+            }
+            return;
+        }
+
+        if (this.state === GameState.Combat && this.combatSystem) {
             let action: CombatAction | null = null;
+            let skillIndex: number | undefined;
+
             if (key === 'a') action = CombatAction.Attack;
             if (key === 'd') action = CombatAction.Defend;
             if (key === 's') action = CombatAction.Dodge;
+            if (key === '1') { action = CombatAction.Skill; skillIndex = 0; }
+            if (key === '2') { action = CombatAction.Skill; skillIndex = 1; }
 
             if (action !== null) {
-                this.combatSystem.handleInput(action);
+                this.combatSystem.handleInput(action, skillIndex);
             }
             return;
         }
 
         let dx = 0;
         let dy = 0;
-
         if (key === 'ArrowUp' || key === 'w') dy = -1;
         if (key === 'ArrowDown' || key === 's') dy = 1;
         if (key === 'ArrowLeft' || key === 'a') dx = -1;
@@ -258,6 +286,8 @@ export class Game {
             this.player.stats.xp -= this.player.stats.level * 100;
             this.player.levelUp();
             this.log(`Level Up! You are now level ${this.player.stats.level}.`);
+            this.state = GameState.LevelUp;
+            this.player.stats.skillPoints += 3; // Give 3 points to spend
         }
 
         if (enemy instanceof DungeonCore) {
@@ -312,29 +342,41 @@ export class Game {
             if (enemy.isDead) continue;
             enemy.updateBuffs();
 
-            // Only move if player is NOT in combat (world freeze)
-            // But wait, if player moves, world moves.
-            // If player is in combat, handleInput returns early, so this function isn't called.
-            // So this is only called when player moves in the world.
-
-            // Simple AI: If visible, move towards player. If not, wander or patrol.
-            // Using A* if visible
+            // Only move if player is visible (simple aggro)
             if (this.map.visible[enemy.y][enemy.x]) {
-                const path = aStar({ x: enemy.x, y: enemy.y }, { x: this.player.x, y: this.player.y }, (x, y) => this.map.isBlocked(x, y));
-                if (path.length > 1) { // path[0] is current pos
-                    const nextStep = path[1];
-                    // Don't move into player (combat trigger is player -> enemy)
-                    if (nextStep.x !== this.player.x || nextStep.y !== this.player.y) {
-                        // Check for other enemies
-                        if (!this.enemies.some(e => e.x === nextStep.x && e.y === nextStep.y)) {
-                            enemy.x = nextStep.x;
-                            enemy.y = nextStep.y;
+                // Optimization: Only pathfind if close enough
+                const dist = Math.abs(enemy.x - this.player.x) + Math.abs(enemy.y - this.player.y);
+
+                if (dist < 15) {
+                    // Throttle pathfinding: only every few turns or if path is empty/blocked
+                    // For now, just run it but with the distance check it should be faster.
+                    // Also, maybe cache the path?
+
+                    // Simple optimization: if adjacent, attack (already handled above? No, this is movement)
+                    // Wait, attack logic is:
+                    // if (distance === 1) attack
+                    // else move
+
+                    if (dist === 1) {
+                        this.attack(enemy, this.player);
+                    } else {
+                        const path = aStar({ x: enemy.x, y: enemy.y }, { x: this.player.x, y: this.player.y }, (x, y) => this.map.isBlocked(x, y));
+                        if (path.length > 1) { // path[0] is current pos
+                            const nextStep = path[1];
+                            // Don't move into player (combat trigger is player -> enemy)
+                            if (nextStep.x !== this.player.x || nextStep.y !== this.player.y) {
+                                // Check for other enemies
+                                if (!this.enemies.some(e => e.x === nextStep.x && e.y === nextStep.y)) {
+                                    enemy.x = nextStep.x;
+                                    enemy.y = nextStep.y;
+                                }
+                            }
                         }
                     }
                 }
             } else {
                 // Random wander if not visible
-                if (Math.random() < 0.2) {
+                if (Math.random() < 0.1) { // Reduced wander rate
                     const dx = Math.floor(Math.random() * 3) - 1;
                     const dy = Math.floor(Math.random() * 3) - 1;
                     if (!this.map.isBlocked(enemy.x + dx, enemy.y + dy)) {
@@ -347,14 +389,16 @@ export class Game {
     }
 
     update() {
-        if (this.combatSystem && this.combatSystem.isActive) {
+        if (this.state === GameState.Combat && this.combatSystem) {
             this.combatSystem.update();
             if (this.combatSystem.enemy.isDead) {
                 this.handleEnemyDeath(this.combatSystem.enemy);
                 this.combatSystem.endCombat();
+                this.state = GameState.Map;
             } else if (this.player.isDead) {
                 this.log("You died in combat!");
                 this.combatSystem.endCombat();
+                this.state = GameState.Map; // Or Game Over state
                 localStorage.removeItem('deluge2_save');
             }
         }
@@ -363,8 +407,14 @@ export class Game {
     draw() {
         this.renderer.clear();
 
-        if (this.combatSystem && this.combatSystem.isActive) {
+        if (this.state === GameState.Combat && this.combatSystem) {
             this.renderer.drawCombat(this.combatSystem);
+        } else if (this.state === GameState.LevelUp) {
+            // Draw map in background
+            this.renderer.drawMap(this.map, this.player.x, this.player.y);
+            this.renderer.drawUI(this.player, this.logs, this.floor);
+            // Draw Level Up Menu
+            this.renderer.drawLevelUp(this.player);
         } else {
             const { camX, camY } = this.renderer.drawMap(this.map, this.player.x, this.player.y);
 
@@ -389,7 +439,6 @@ export class Game {
             this.renderer.drawUI(this.player, this.logs, this.floor);
         }
     }
-
     loop() {
         this.update();
         this.draw();

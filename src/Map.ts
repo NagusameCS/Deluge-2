@@ -77,11 +77,13 @@ export class GameMap {
     generate() {
         this.initialize();
         this.rooms = [];
-        const MAX_ROOMS = 15;
-        const MIN_SIZE = 6;
-        const MAX_SIZE = 12;
+        const MAX_ROOMS = 30; // Increased from 15
+        const MIN_SIZE = 8;   // Increased from 6
+        const MAX_SIZE = 15;  // Increased from 12
 
-        for (let i = 0; i < MAX_ROOMS; i++) {
+        for (let i = 0; i < MAX_ROOMS * 2; i++) { // Try more times to place rooms
+            if (this.rooms.length >= MAX_ROOMS) break;
+
             const w = getRandomInt(MIN_SIZE, MAX_SIZE);
             const h = getRandomInt(MIN_SIZE, MAX_SIZE);
             const x = getRandomInt(1, this.width - w - 1);
@@ -91,7 +93,9 @@ export class GameMap {
 
             let failed = false;
             for (const otherRoom of this.rooms) {
-                if (newRoom.intersects(otherRoom)) {
+                // Add padding to prevent rooms from touching directly
+                const paddedRoom = new Rect(newRoom.x - 1, newRoom.y - 1, newRoom.w + 2, newRoom.h + 2);
+                if (paddedRoom.intersects(otherRoom)) {
                     failed = true;
                     break;
                 }
@@ -101,6 +105,8 @@ export class GameMap {
                 this.createRoom(newRoom);
 
                 if (this.rooms.length > 0) {
+                    // Connect to the nearest room instead of just the previous one to reduce long hallways
+                    // Or just keep it simple for now but ensure connectivity
                     const prevRoom = this.rooms[this.rooms.length - 1];
                     const newCenter = newRoom.center();
                     const prevCenter = prevRoom.center();

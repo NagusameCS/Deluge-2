@@ -1,5 +1,5 @@
 import { GameMap } from './Map';
-import { Entity, Item, Trap } from './Entity';
+import { Entity, Item, Trap, Player } from './Entity';
 import { TILE_SIZE, TileType, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from './utils';
 import { CombatSystem } from './Combat';
 
@@ -14,9 +14,26 @@ export class Renderer {
         this.ctx = this.canvas.getContext('2d')!;
         this.width = width;
         this.height = height;
+
+        // Set internal resolution
         this.canvas.width = width * TILE_SIZE;
         this.canvas.height = height * TILE_SIZE;
+
+        // Scale canvas to fit screen while maintaining aspect ratio
+        this.resizeCanvas();
+        window.addEventListener('resize', () => this.resizeCanvas());
+
         this.ctx.font = '12px monospace';
+    }
+
+    resizeCanvas() {
+        const scale = Math.min(
+            window.innerWidth / this.canvas.width,
+            window.innerHeight / this.canvas.height
+        );
+
+        this.canvas.style.width = `${this.canvas.width * scale}px`;
+        this.canvas.style.height = `${this.canvas.height * scale}px`;
     }
 
     clear() {
@@ -43,23 +60,33 @@ export class Renderer {
                 if (visible) {
                     if (tile === TileType.Wall) {
                         this.ctx.fillStyle = '#888'; // Lit wall
+                        this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                        // Add depth/shadow
+                        this.ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                        this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE + TILE_SIZE - 4, TILE_SIZE, 4);
                     } else if (tile === TileType.Floor) {
-                        this.ctx.fillStyle = '#ccc'; // Lit floor
+                        this.ctx.fillStyle = '#222'; // Darker floor for contrast
+                        this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                        // Floor texture dot
+                        this.ctx.fillStyle = '#333';
+                        this.ctx.fillRect(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, 2, 2);
                     } else {
                         this.ctx.fillStyle = '#000';
+                        this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                     }
                 } else if (explored) {
                     if (tile === TileType.Wall) {
                         this.ctx.fillStyle = '#444'; // Dark wall
                     } else if (tile === TileType.Floor) {
-                        this.ctx.fillStyle = '#666'; // Dark floor
+                        this.ctx.fillStyle = '#111'; // Dark floor
                     } else {
                         this.ctx.fillStyle = '#000';
                     }
+                    this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                 } else {
                     this.ctx.fillStyle = '#000'; // Unexplored
+                    this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                 }
-                this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
             }
         }
 
@@ -203,6 +230,7 @@ export class Renderer {
         this.ctx.fillText("COMBAT MODE", 20, 40);
         this.ctx.font = '16px monospace';
         this.ctx.fillText("[A] Attack  [D] Defend  [S] Dodge", 20, 70);
+        this.ctx.fillText("[1] Heal (10MP)  [2] Fireball (15MP)", 20, 90);
 
         // Combat Log
         let y = this.canvas.height - 20;
@@ -228,5 +256,27 @@ export class Renderer {
             this.ctx.fillText(logs[i], 10, y);
             y -= 20;
         }
+    }
+
+    drawLevelUp(player: Player) {
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.ctx.fillStyle = 'white';
+        this.ctx.font = '30px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText("LEVEL UP!", this.canvas.width / 2, 100);
+
+        this.ctx.font = '20px monospace';
+        this.ctx.fillText(`Points Remaining: ${player.stats.skillPoints}`, this.canvas.width / 2, 140);
+
+        this.ctx.textAlign = 'left';
+        const x = this.canvas.width / 2 - 150;
+        let y = 200;
+
+        this.ctx.fillText(`[1] Max HP (+10)   : ${player.stats.maxHp}`, x, y); y += 40;
+        this.ctx.fillText(`[2] Max Mana (+10) : ${player.stats.maxMana}`, x, y); y += 40;
+        this.ctx.fillText(`[3] Attack (+2)    : ${player.stats.attack}`, x, y); y += 40;
+        this.ctx.fillText(`[4] Defense (+1)   : ${player.stats.defense}`, x, y); y += 40;
     }
 }
