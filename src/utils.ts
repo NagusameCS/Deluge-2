@@ -1,6 +1,8 @@
 export const TILE_SIZE = 32;
-export const MAP_WIDTH = 50;
-export const MAP_HEIGHT = 30;
+export const MAP_WIDTH = 100;
+export const MAP_HEIGHT = 100;
+export const VIEWPORT_WIDTH = 25;
+export const VIEWPORT_HEIGHT = 15;
 
 export interface Point {
     x: number;

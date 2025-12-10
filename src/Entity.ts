@@ -1,5 +1,6 @@
 
 import { ItemType, clamp } from './utils';
+import type { Point } from './utils';
 
 export interface Stats {
     hp: number;
@@ -146,6 +147,10 @@ export class Player extends Entity {
 }
 
 export class Enemy extends Entity {
+    goal: Point | null = null;
+    path: Point[] = [];
+    moveTimer: number = 0;
+
     constructor(x: number, y: number, difficulty: number) {
         const isBoss = Math.random() < 0.05;
         super(x, y, isBoss ? '#800080' : '#f00', isBoss ? 'B' : 'E', isBoss ? 'Boss Orc' : 'Orc', {

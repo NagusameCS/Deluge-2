@@ -2,7 +2,9 @@ import { GameMap } from './Map';
 import { Player, Enemy, Item, DungeonCore, Entity } from './Entity';
 import { Renderer } from './Renderer';
 import { InputHandler } from './Input';
-import { MAP_WIDTH, MAP_HEIGHT, ItemType } from './utils';
+import { MAP_WIDTH, MAP_HEIGHT, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from './utils';
+import { CombatSystem, CombatAction } from './Combat';
+import { aStar } from './Pathfinding';
 
 export class Game {
     map!: GameMap;
@@ -12,12 +14,15 @@ export class Game {
     core: DungeonCore | null = null;
     renderer: Renderer;
     inputHandler: InputHandler;
+    combatSystem: CombatSystem | null = null;
     logs: string[] = [];
     floor: number = 1;
+    turnCounter: number = 0;
 
     constructor() {
-        this.renderer = new Renderer('gameCanvas', MAP_WIDTH, MAP_HEIGHT);
+        this.renderer = new Renderer('gameCanvas', VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
         this.inputHandler = new InputHandler(this.handleInput.bind(this));
+        // combatSystem initialized when combat starts
 
         if (this.loadGame()) {
             this.log("Welcome back to Deluge-2!");
@@ -67,7 +72,7 @@ export class Game {
                 if (typeRoll < 0.4) {
                     this.items.push(new Item(center.x, center.y, 'Health Potion', '#0f0', ItemType.Potion, 20));
                 } else if (typeRoll < 0.6) {
-                    this.items.push(new Item(center.x, center.y, 'Mana Potion', '#00f', ItemType.Potion, 20)); // Reusing potion type for now, logic in pickup
+                    this.items.push(new Item(center.x, center.y, 'Mana Potion', '#00f', ItemType.Potion, 20));
                 } else if (typeRoll < 0.7) {
                     this.items.push(new Item(center.x, center.y, 'Iron Sword', '#ccc', ItemType.Weapon, 2));
                 } else if (typeRoll < 0.8) {
@@ -96,15 +101,8 @@ export class Game {
         try {
             const data = JSON.parse(saveString);
             this.floor = data.floor;
-            // Reconstruct player
             this.player = new Player(0, 0);
             Object.assign(this.player, data.player);
-            // Re-assign prototype methods if lost (JSON doesn't save methods)
-            // A better way is to hydrate, but for now we just copy stats
-            // Actually, we need to regenerate the level because we don't save the map state
-            // This is a "roguelite" save - save progress between runs or floors, but maybe not exact state if we want to be simple.
-            // But user asked for "progress saves when game is closed".
-            // Let's just generate a new level for the current floor for simplicity, keeping player stats.
             this.generateLevel();
             return true;
         } catch (e) {
@@ -118,11 +116,38 @@ export class Game {
         if (this.logs.length > 10) this.logs.shift();
     }
 
+    startCombat(enemy: Enemy | DungeonCore) {
+        if (enemy instanceof Enemy) {
+            this.combatSystem = new CombatSystem(this.player, enemy);
+            this.log(`Combat started with ${enemy.name}!`);
+        } else {
+            // DungeonCore combat might be different or same? 
+            // CombatSystem expects Enemy, but DungeonCore extends Entity.
+            // Let's assume for now we only fight Enemies in this mode, or cast DungeonCore to Enemy if compatible.
+            // Actually DungeonCore is not an Enemy.
+            // Let's just do simple attack for Core for now, or make CombatSystem accept Entity.
+            // For now, fallback to simple attack for Core.
+            this.attack(this.player, enemy);
+        }
+    }
+
     handleInput(key: string) {
         if (this.player.isDead) {
             if (key === 'Enter') {
                 this.startNewGame();
                 this.log("New Game Started!");
+            }
+            return;
+        }
+
+        if (this.combatSystem && this.combatSystem.isActive) {
+            let action: CombatAction | null = null;
+            if (key === 'a') action = CombatAction.Attack;
+            if (key === 'd') action = CombatAction.Defend;
+            if (key === 's') action = CombatAction.Dodge;
+
+            if (action !== null) {
+                this.combatSystem.handleInput(action);
             }
             return;
         }
@@ -135,7 +160,7 @@ export class Game {
         if (key === 'ArrowLeft' || key === 'a') dx = -1;
         if (key === 'ArrowRight' || key === 'd') dx = 1;
 
-        // Skills
+        // Skills (Only in map mode for now, maybe add to combat later)
         if (key === '1') this.useSkill(0);
         if (key === '2') this.useSkill(1);
 
@@ -146,9 +171,9 @@ export class Game {
             // Check for enemies
             const targetEnemy = this.enemies.find(e => e.x === destX && e.y === destY);
             if (targetEnemy) {
-                this.attack(this.player, targetEnemy);
+                this.startCombat(targetEnemy);
             } else if (this.core && this.core.x === destX && this.core.y === destY) {
-                this.attack(this.player, this.core);
+                this.startCombat(this.core);
             } else if (!this.map.isBlocked(destX, destY)) {
                 this.player.move(dx, dy);
 
@@ -212,13 +237,36 @@ export class Game {
 
             if (nearest) {
                 this.log(`You cast Fireball at ${nearest.name}!`);
-                this.attack(this.player, nearest, 15); // Flat 15 damage
+                // Instant damage for now, maybe integrate into combat later
+                const result = nearest.takeDamage(15);
+                this.log(`Fireball hits ${nearest.name} for ${result.damage} damage.`);
+                if (nearest.isDead) {
+                    this.handleEnemyDeath(nearest);
+                }
             } else {
                 this.log("No target in range for Fireball.");
             }
         }
+    }
 
-        this.updateEnemies();
+    handleEnemyDeath(enemy: Entity) {
+        this.log(`${enemy.name} dies!`);
+        this.player.stats.xp += enemy.stats.xp;
+        this.log(`You gain ${enemy.stats.xp} XP.`);
+
+        if (this.player.stats.xp >= this.player.stats.level * 100) {
+            this.player.stats.xp -= this.player.stats.level * 100;
+            this.player.levelUp();
+            this.log(`Level Up! You are now level ${this.player.stats.level}.`);
+        }
+
+        if (enemy instanceof DungeonCore) {
+            this.log("Dungeon Core destroyed! Moving to next floor...");
+            this.floor++;
+            setTimeout(() => this.generateLevel(), 1000);
+        } else {
+            this.enemies = this.enemies.filter(e => e !== enemy);
+        }
     }
 
     attack(attacker: Entity, defender: Entity, bonusDamage: number = 0) {
@@ -231,29 +279,7 @@ export class Game {
         this.log(msg);
 
         if (defender.isDead) {
-            this.log(`${defender.name} dies!`);
-            if (defender instanceof Enemy || defender instanceof DungeonCore) {
-                this.player.stats.xp += defender.stats.xp;
-                this.log(`You gain ${defender.stats.xp} XP.`);
-
-                if (this.player.stats.xp >= this.player.stats.level * 100) {
-                    this.player.stats.xp -= this.player.stats.level * 100;
-                    this.player.levelUp();
-                    this.log(`Level Up! You are now level ${this.player.stats.level}.`);
-                }
-
-                if (defender instanceof DungeonCore) {
-                    this.log("Dungeon Core destroyed! Moving to next floor...");
-                    this.floor++;
-                    setTimeout(() => this.generateLevel(), 1000);
-                } else {
-                    // Remove dead enemy
-                    this.enemies = this.enemies.filter(e => e !== defender);
-                }
-            } else {
-                this.log("Game Over! Press Enter to restart.");
-                localStorage.removeItem('deluge2_save');
-            }
+            this.handleEnemyDeath(defender);
         }
     }
 
@@ -279,71 +305,94 @@ export class Game {
     }
 
     updateEnemies() {
+        this.turnCounter++;
+
+        // Passive movement for enemies
         for (const enemy of this.enemies) {
             if (enemy.isDead) continue;
-
             enemy.updateBuffs();
 
-            // Only move if player is visible (simple aggro)
+            // Only move if player is NOT in combat (world freeze)
+            // But wait, if player moves, world moves.
+            // If player is in combat, handleInput returns early, so this function isn't called.
+            // So this is only called when player moves in the world.
+
+            // Simple AI: If visible, move towards player. If not, wander or patrol.
+            // Using A* if visible
             if (this.map.visible[enemy.y][enemy.x]) {
-                const dx = this.player.x - enemy.x;
-                const dy = this.player.y - enemy.y;
-                const distance = Math.abs(dx) + Math.abs(dy);
-
-                if (distance === 1) {
-                    this.attack(enemy, this.player);
-                } else {
-                    let moveX = 0;
-                    let moveY = 0;
-
-                    if (Math.abs(dx) > Math.abs(dy)) {
-                        moveX = dx > 0 ? 1 : -1;
-                    } else {
-                        moveY = dy > 0 ? 1 : -1;
-                    }
-
-                    if (!this.map.isBlocked(enemy.x + moveX, enemy.y + moveY)) {
-                        let blocked = false;
-                        // Don't move into other enemies
-                        if (this.enemies.some(e => e.x === enemy.x + moveX && e.y === enemy.y + moveY)) blocked = true;
-                        if (this.core && this.core.x === enemy.x + moveX && this.core.y === enemy.y + moveY) blocked = true;
-                        if (enemy.x + moveX === this.player.x && enemy.y + moveY === this.player.y) blocked = true;
-
-                        if (!blocked) {
-                            enemy.move(moveX, moveY);
+                const path = aStar({ x: enemy.x, y: enemy.y }, { x: this.player.x, y: this.player.y }, (x, y) => this.map.isBlocked(x, y));
+                if (path.length > 1) { // path[0] is current pos
+                    const nextStep = path[1];
+                    // Don't move into player (combat trigger is player -> enemy)
+                    if (nextStep.x !== this.player.x || nextStep.y !== this.player.y) {
+                        // Check for other enemies
+                        if (!this.enemies.some(e => e.x === nextStep.x && e.y === nextStep.y)) {
+                            enemy.x = nextStep.x;
+                            enemy.y = nextStep.y;
                         }
+                    }
+                }
+            } else {
+                // Random wander if not visible
+                if (Math.random() < 0.2) {
+                    const dx = Math.floor(Math.random() * 3) - 1;
+                    const dy = Math.floor(Math.random() * 3) - 1;
+                    if (!this.map.isBlocked(enemy.x + dx, enemy.y + dy)) {
+                        enemy.x += dx;
+                        enemy.y += dy;
                     }
                 }
             }
         }
     }
 
-    loop() {
-        this.renderer.clear();
-        this.renderer.drawMap(this.map);
-
-        // Draw traps (only if visible/triggered logic? For now draw if visible)
-        for (const trap of this.map.traps) {
-            if (this.map.visible[trap.y][trap.x] || trap.triggered) {
-                this.renderer.drawTrap(trap);
+    update() {
+        if (this.combatSystem && this.combatSystem.isActive) {
+            this.combatSystem.update();
+            if (this.combatSystem.enemy.isDead) {
+                this.handleEnemyDeath(this.combatSystem.enemy);
+                this.combatSystem.endCombat();
+            } else if (this.player.isDead) {
+                this.log("You died in combat!");
+                this.combatSystem.endCombat();
+                localStorage.removeItem('deluge2_save');
             }
         }
+    }
 
-        for (const item of this.items) {
-            this.renderer.drawItem(item, this.map);
+    draw() {
+        this.renderer.clear();
+
+        if (this.combatSystem && this.combatSystem.isActive) {
+            this.renderer.drawCombat(this.combatSystem);
+        } else {
+            const { camX, camY } = this.renderer.drawMap(this.map, this.player.x, this.player.y);
+
+            for (const item of this.items) {
+                this.renderer.drawItem(item, this.map, camX, camY);
+            }
+
+            for (const trap of this.map.traps) {
+                this.renderer.drawTrap(trap, camX, camY);
+            }
+
+            if (this.core) {
+                this.renderer.drawEntity(this.core, this.map, camX, camY);
+            }
+
+            for (const enemy of this.enemies) {
+                this.renderer.drawEntity(enemy, this.map, camX, camY);
+            }
+
+            this.renderer.drawEntity(this.player, this.map, camX, camY);
+            this.renderer.drawMinimap(this.map, this.player);
+            this.renderer.drawUI(this.player, this.logs, this.floor);
         }
+    }
 
-        if (this.core && !this.core.isDead && this.map.visible[this.core.y][this.core.x]) {
-            this.renderer.drawEntity(this.core, this.map);
-        }
-
-        for (const enemy of this.enemies) {
-            this.renderer.drawEntity(enemy, this.map);
-        }
-
-        this.renderer.drawEntity(this.player, this.map);
-        this.renderer.drawUI(this.player, this.logs, this.floor);
-
+    loop() {
+        this.update();
+        this.draw();
         requestAnimationFrame(this.loop.bind(this));
     }
 }
