@@ -91,7 +91,7 @@ export class Entity {
                 this.buffs.splice(i, 1);
             }
         }
-        
+
         // Cooldowns
         this.skills.forEach(s => {
             if (s.currentCooldown > 0) s.currentCooldown--;
@@ -114,7 +114,7 @@ export class Player extends Entity {
             critChance: 0.05,
             dodgeChance: 0.05
         });
-        
+
         this.skills.push({
             id: 'heal',
             name: 'Heal',
@@ -123,7 +123,7 @@ export class Player extends Entity {
             currentCooldown: 0,
             description: 'Heal 20 HP'
         });
-        
+
         this.skills.push({
             id: 'fireball',
             name: 'Fireball',
@@ -133,7 +133,7 @@ export class Player extends Entity {
             description: 'Deal 15 DMG (Range 5)'
         });
     }
-    
+
     levelUp() {
         this.stats.level++;
         this.stats.skillPoints++;
@@ -206,7 +206,7 @@ export class Trap {
     name: string;
     triggered: boolean = false;
     damage: number;
-    
+
     constructor(x: number, y: number, name: string, damage: number) {
         this.x = x;
         this.y = y;

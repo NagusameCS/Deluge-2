@@ -15,13 +15,15 @@ export const TileType = {
 
 export type TileType = typeof TileType[keyof typeof TileType];
 
-export enum ItemType {
-    Potion = 'potion',
-    Weapon = 'weapon',
-    Armor = 'armor',
-    Scroll = 'scroll',
-    Coin = 'coin'
-}
+export const ItemType = {
+    Potion: 'potion',
+    Weapon: 'weapon',
+    Armor: 'armor',
+    Scroll: 'scroll',
+    Coin: 'coin'
+} as const;
+
+export type ItemType = typeof ItemType[keyof typeof ItemType];
 
 export function getRandomInt(min: number, max: number): number {
     return Math.floor(Math.random() * (max - min)) + min;

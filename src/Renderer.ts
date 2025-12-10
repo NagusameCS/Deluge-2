@@ -1,6 +1,6 @@
 import { GameMap } from './Map';
-import { Entity, Item } from './Entity';
-import { TILE_SIZE, TileType } from './utils';
+import { Entity, Item, Trap } from './Entity';
+import { TILE_SIZE, TileType, ItemType } from './utils';
 
 export class Renderer {
     canvas: HTMLCanvasElement;
@@ -77,14 +77,40 @@ export class Renderer {
         const cy = item.y * TILE_SIZE + TILE_SIZE / 2;
 
         this.ctx.beginPath();
-        this.ctx.arc(cx, cy, TILE_SIZE / 4, 0, Math.PI * 2);
+        if (item.type === ItemType.Potion) {
+            this.ctx.arc(cx, cy, TILE_SIZE / 4, 0, Math.PI * 2);
+        } else if (item.type === ItemType.Weapon) {
+            this.ctx.moveTo(cx, cy - 5);
+            this.ctx.lineTo(cx + 5, cy + 5);
+            this.ctx.lineTo(cx - 5, cy + 5);
+        } else {
+            this.ctx.rect(cx - 4, cy - 4, 8, 8);
+        }
         this.ctx.fill();
     }
 
-    drawUI(player: Entity, logs: string[]) {
+    drawTrap(trap: Trap) {
+        this.ctx.fillStyle = '#555'; // Grey for trap
+        if (trap.triggered) this.ctx.fillStyle = '#f00'; // Red if triggered
+
+        const cx = trap.x * TILE_SIZE + TILE_SIZE / 2;
+        const cy = trap.y * TILE_SIZE + TILE_SIZE / 2;
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(cx, cy - 8);
+        this.ctx.lineTo(cx + 8, cy + 8);
+        this.ctx.lineTo(cx - 8, cy + 8);
+        this.ctx.fill();
+    }
+
+    drawUI(player: Entity, logs: string[], floor: number) {
         this.ctx.fillStyle = 'white';
         this.ctx.font = '16px monospace';
-        this.ctx.fillText(`HP: ${player.stats.hp}/${player.stats.maxHp}  Lvl: ${player.stats.level}  XP: ${player.stats.xp}`, 10, 20);
+        this.ctx.fillText(`Floor: ${floor}  HP: ${player.stats.hp}/${player.stats.maxHp}  Mana: ${player.stats.mana}/${player.stats.maxMana}  Lvl: ${player.stats.level}  XP: ${player.stats.xp}`, 10, 20);
+
+        // Draw Skills
+        this.ctx.font = '14px monospace';
+        this.ctx.fillText(`Skills: [1] Heal (10 MP)  [2] Fireball (15 MP)`, 10, 40);
 
         // Draw logs
         this.ctx.font = '14px monospace';

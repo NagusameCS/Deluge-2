@@ -77,9 +77,9 @@ export class GameMap {
     generate() {
         this.initialize();
         this.rooms = [];
-        const MAX_ROOMS = 10;
-        const MIN_SIZE = 4;
-        const MAX_SIZE = 10;
+        const MAX_ROOMS = 15;
+        const MIN_SIZE = 6;
+        const MAX_SIZE = 12;
 
         for (let i = 0; i < MAX_ROOMS; i++) {
             const w = getRandomInt(MIN_SIZE, MAX_SIZE);
@@ -115,6 +115,17 @@ export class GameMap {
                 }
 
                 this.rooms.push(newRoom);
+            }
+        }
+
+        // Place traps
+        for (let i = 0; i < 10; i++) {
+            if (this.rooms.length === 0) break;
+            const room = this.rooms[getRandomInt(0, this.rooms.length)];
+            const x = getRandomInt(room.x + 1, room.x + room.w - 1);
+            const y = getRandomInt(room.y + 1, room.y + room.h - 1);
+            if (this.tiles[y][x] === TileType.Floor) {
+                this.traps.push(new Trap(x, y, 'Spike Trap', 10));
             }
         }
     }
@@ -158,7 +169,7 @@ export class Rect {
         this.h = h;
     }
 
-    center(): Point {
+    center(): { x: number, y: number } {
         return {
             x: Math.floor(this.x + this.w / 2),
             y: Math.floor(this.y + this.h / 2)
