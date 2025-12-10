@@ -1,27 +1,76 @@
 import { TileType, getRandomInt } from './utils';
-import type { Point } from './utils';
+import { Trap } from './Entity';
 
 export class GameMap {
     width: number;
     height: number;
     tiles: TileType[][];
     rooms: Rect[] = [];
+    explored: boolean[][];
+    visible: boolean[][];
+    traps: Trap[] = [];
 
     constructor(width: number, height: number) {
         this.width = width;
         this.height = height;
         this.tiles = [];
+        this.explored = [];
+        this.visible = [];
         this.initialize();
     }
 
     initialize() {
         // Fill with walls
+        this.tiles = [];
+        this.explored = [];
+        this.visible = [];
+        this.traps = [];
         for (let y = 0; y < this.height; y++) {
             const row: TileType[] = [];
+            const exploredRow: boolean[] = [];
+            const visibleRow: boolean[] = [];
             for (let x = 0; x < this.width; x++) {
                 row.push(TileType.Wall);
+                exploredRow.push(false);
+                visibleRow.push(false);
             }
             this.tiles.push(row);
+            this.explored.push(exploredRow);
+            this.visible.push(visibleRow);
+        }
+    }
+
+    computeFOV(px: number, py: number, radius: number) {
+        // Reset visible
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                this.visible[y][x] = false;
+            }
+        }
+
+        // Simple Raycasting for FOV
+        for (let i = 0; i < 360; i += 0.5) {
+            const rad = i * (Math.PI / 180);
+            let x = px + 0.5;
+            let y = py + 0.5;
+            const dx = Math.cos(rad);
+            const dy = Math.sin(rad);
+
+            for (let j = 0; j < radius; j++) {
+                x += dx;
+                y += dy;
+                const mapX = Math.floor(x);
+                const mapY = Math.floor(y);
+
+                if (mapX < 0 || mapX >= this.width || mapY < 0 || mapY >= this.height) break;
+
+                this.visible[mapY][mapX] = true;
+                this.explored[mapY][mapX] = true;
+
+                if (this.tiles[mapY][mapX] === TileType.Wall) {
+                    break;
+                }
+            }
         }
     }
 
