@@ -372,29 +372,36 @@ export class AssetManager {
 }
 
 // Helper to draw a pixel art asset at a given position
+// Returns true if successfully drawn, false if asset not found
 export function drawAsset(
     ctx: CanvasRenderingContext2D,
-    assetId: string,
+    assetOrId: string | GameAsset,
     x: number,
     y: number,
     size: number = 32
-) {
-    const asset = AssetManager.getAsset(assetId);
-    if (!asset) {
-        // Fallback: draw a colored square
-        ctx.fillStyle = '#f0f';
-        ctx.fillRect(x, y, size, size);
-        return;
+): boolean {
+    let asset: GameAsset | undefined;
+    
+    if (typeof assetOrId === 'string') {
+        asset = AssetManager.getAsset(assetOrId);
+    } else {
+        asset = assetOrId;
+    }
+    
+    if (!asset || !asset.pixels) {
+        return false;
     }
 
     const pixelSize = size / 8;
     for (let py = 0; py < 8; py++) {
         for (let px = 0; px < 8; px++) {
             const color = asset.pixels[py]?.[px];
-            if (color && color !== 'transparent') {
+            if (color && color !== '' && color !== 'transparent') {
                 ctx.fillStyle = color;
                 ctx.fillRect(x + px * pixelSize, y + py * pixelSize, pixelSize, pixelSize);
             }
         }
     }
+    
+    return true;
 }

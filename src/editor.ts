@@ -4,6 +4,7 @@
  */
 
 import { SpriteManager, type SpriteData, DEFAULT_PLAYER_SPRITE } from './Sprite';
+import { AssetManager, BUILTIN_ASSETS, type GameAsset } from './GameAssets';
 
 // Default color palette
 const DEFAULT_PALETTE = [
@@ -22,6 +23,11 @@ let currentSpriteIndex = -1;
 let moveset: SpriteData['moveset'] = [];
 let selectedMoveIndex = -1;
 
+// Asset editor state
+let assets: GameAsset[] = [];
+let selectedAssetId: string | null = null;
+let currentAssetCategory: string = 'all';
+
 // Canvas references
 let canvas: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
@@ -39,8 +45,14 @@ function init() {
     preview4x = document.getElementById('previewCanvas4x') as HTMLCanvasElement;
     previewGame = document.getElementById('previewCanvasGame') as HTMLCanvasElement;
 
+    // Initialize asset manager
+    AssetManager.init();
+
     // Load saved sprites
     loadSprites();
+    
+    // Load assets
+    loadAssets();
 
     // Setup color palette
     setupColorPalette();
@@ -50,11 +62,13 @@ function init() {
     setupUIEvents();
     setupDropZone();
     setupTabs();
+    setupAssetEvents();
 
     // Initial render
     renderCanvas();
     renderSpriteList();
     renderMovesetList();
+    renderAssetList();
 
     // Create a new sprite by default if none exist
     if (sprites.length === 0) {
@@ -649,6 +663,203 @@ function showNotification(message: string) {
         div.style.transition = 'opacity 0.3s';
         setTimeout(() => div.remove(), 300);
     }, 1500);
+}
+
+// ============================================
+// Asset Management Functions
+// ============================================
+
+function loadAssets() {
+    // Load all assets - both built-in and custom
+    assets = [];
+    
+    // Add built-in assets
+    for (const asset of BUILTIN_ASSETS) {
+        // Check if there's a custom version
+        const customAsset = AssetManager.getAsset(asset.id);
+        if (customAsset) {
+            assets.push(customAsset);
+        } else {
+            assets.push(asset);
+        }
+    }
+}
+
+function setupAssetEvents() {
+    // Category filter
+    const categorySelect = document.getElementById('assetCategory');
+    if (categorySelect) {
+        categorySelect.addEventListener('change', (e) => {
+            currentAssetCategory = (e.target as HTMLSelectElement).value;
+            renderAssetList();
+        });
+    }
+
+    // Load asset to canvas button
+    const loadBtn = document.getElementById('loadAssetBtn');
+    if (loadBtn) {
+        loadBtn.addEventListener('click', loadAssetToCanvas);
+    }
+
+    // Save asset button
+    const saveBtn = document.getElementById('saveAssetBtn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', saveCurrentAsset);
+    }
+
+    // Reset asset button
+    const resetBtn = document.getElementById('resetAssetBtn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetSelectedAsset);
+    }
+}
+
+function renderAssetList() {
+    const list = document.getElementById('assetList');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    // Filter assets by category
+    const filteredAssets = currentAssetCategory === 'all' 
+        ? assets 
+        : assets.filter(a => a.category === currentAssetCategory);
+
+    filteredAssets.forEach(asset => {
+        const item = document.createElement('div');
+        item.className = 'asset-item' + (asset.id === selectedAssetId ? ' selected' : '');
+
+        // Create a preview canvas for the asset
+        const previewCanvas = document.createElement('canvas');
+        previewCanvas.width = 24;
+        previewCanvas.height = 24;
+        const previewCtx = previewCanvas.getContext('2d')!;
+        previewCtx.imageSmoothingEnabled = false;
+        
+        // Draw the asset at 3x scale
+        for (let y = 0; y < 8; y++) {
+            for (let x = 0; x < 8; x++) {
+                const color = asset.pixels[y]?.[x];
+                if (color) {
+                    previewCtx.fillStyle = color;
+                    previewCtx.fillRect(x * 3, y * 3, 3, 3);
+                }
+            }
+        }
+
+        // Check if this asset has been modified
+        const builtinAsset = BUILTIN_ASSETS.find(b => b.id === asset.id);
+        const isModified = builtinAsset && JSON.stringify(builtinAsset.pixels) !== JSON.stringify(asset.pixels);
+
+        item.innerHTML = `
+            <div class="info">
+                <div class="name">${asset.name}</div>
+                <div class="category">${asset.category}</div>
+                ${isModified ? '<div class="modified">✓ Modified</div>' : ''}
+            </div>
+        `;
+        item.insertBefore(previewCanvas, item.firstChild);
+
+        item.onclick = () => selectAsset(asset.id);
+        list.appendChild(item);
+    });
+
+    // Show/hide asset info panel
+    const assetInfo = document.getElementById('assetInfo');
+    if (assetInfo) {
+        assetInfo.style.display = selectedAssetId ? 'block' : 'none';
+    }
+}
+
+function selectAsset(assetId: string) {
+    selectedAssetId = assetId;
+    renderAssetList();
+
+    const asset = assets.find(a => a.id === assetId);
+    if (asset) {
+        // Update info panel
+        (document.getElementById('assetId') as HTMLInputElement).value = asset.id;
+        (document.getElementById('assetName') as HTMLInputElement).value = asset.name;
+        (document.getElementById('assetDesc') as HTMLTextAreaElement).value = asset.description || '';
+        (document.getElementById('assetColor') as HTMLInputElement).value = asset.color;
+    }
+}
+
+function loadAssetToCanvas() {
+    if (!selectedAssetId) {
+        showNotification('Select an asset first!');
+        return;
+    }
+
+    const asset = assets.find(a => a.id === selectedAssetId);
+    if (!asset) return;
+
+    // Load asset pixels to the editor canvas
+    pixelData = asset.pixels.map(row => [...row]);
+    
+    // Clear sprite selection to indicate we're editing an asset
+    currentSpriteIndex = -1;
+    document.querySelectorAll('.sprite-item').forEach(item => item.classList.remove('selected'));
+
+    renderCanvas();
+    updatePreviews();
+    showNotification(`Loaded ${asset.name} to canvas`);
+}
+
+function saveCurrentAsset() {
+    if (!selectedAssetId) {
+        showNotification('Select an asset first!');
+        return;
+    }
+
+    const assetIndex = assets.findIndex(a => a.id === selectedAssetId);
+    if (assetIndex < 0) return;
+
+    // Update asset with current canvas data
+    const updatedAsset: GameAsset = {
+        ...assets[assetIndex],
+        pixels: pixelData.map(row => [...row]),
+        name: (document.getElementById('assetName') as HTMLInputElement).value || assets[assetIndex].name,
+        description: (document.getElementById('assetDesc') as HTMLTextAreaElement).value || '',
+        color: (document.getElementById('assetColor') as HTMLInputElement).value || '#ffffff'
+    };
+
+    // Save to storage
+    AssetManager.saveAsset(updatedAsset);
+    
+    // Update local array
+    assets[assetIndex] = updatedAsset;
+    
+    renderAssetList();
+    showNotification(`Saved ${updatedAsset.name}!`);
+}
+
+function resetSelectedAsset() {
+    if (!selectedAssetId) {
+        showNotification('Select an asset first!');
+        return;
+    }
+
+    // Find the built-in version
+    const builtinAsset = BUILTIN_ASSETS.find(a => a.id === selectedAssetId);
+    if (!builtinAsset) {
+        showNotification('No default version found!');
+        return;
+    }
+
+    // Delete custom version
+    AssetManager.deleteAsset(selectedAssetId);
+    
+    // Reload assets
+    loadAssets();
+    renderAssetList();
+    
+    // Load default to canvas
+    pixelData = builtinAsset.pixels.map(row => [...row]);
+    renderCanvas();
+    updatePreviews();
+    
+    showNotification(`Reset ${builtinAsset.name} to default`);
 }
 
 // Start the editor

@@ -435,7 +435,7 @@ export class DungeonCore extends Entity {
     puzzleSolved: boolean = false;
     puzzleType: 'sequence' | 'match' | 'memory';
     puzzleData: any;
-    
+
     // Multi-puzzle system with lamps
     puzzlesCompleted: number = 0;
     puzzlesRequired: number = 4;
@@ -455,7 +455,7 @@ export class DungeonCore extends Entity {
         for (let i = 0; i < this.puzzlesRequired; i++) {
             this.currentPuzzleTypes.push(types[getRandomInt(0, types.length)]);
         }
-        
+
         // Start with first puzzle
         this.puzzleType = this.currentPuzzleTypes[0];
         this.initPuzzle();
@@ -469,12 +469,12 @@ export class DungeonCore extends Entity {
             for (let i = 0; i < length; i++) {
                 sequence.push(getRandomInt(1, 5)); // 1-4 keys
             }
-            this.puzzleData = { 
-                sequence, 
-                currentIndex: 0, 
-                showingSequence: true, 
+            this.puzzleData = {
+                sequence,
+                currentIndex: 0,
+                showingSequence: true,
                 showIndex: 0,
-                showTimer: 0 
+                showTimer: 0
             };
         } else if (this.puzzleType === 'match') {
             // Match pairs of symbols
@@ -531,12 +531,12 @@ export class DungeonCore extends Entity {
     completePuzzle(): boolean {
         this.puzzlesCompleted++;
         this.lampStates[this.puzzlesCompleted - 1] = true;
-        
+
         if (this.puzzlesCompleted >= this.puzzlesRequired) {
             this.puzzleSolved = true;
             return true; // All puzzles done
         }
-        
+
         // Load next puzzle
         this.puzzleType = this.currentPuzzleTypes[this.puzzlesCompleted];
         this.initPuzzle();

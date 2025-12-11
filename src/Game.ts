@@ -7,6 +7,7 @@ import { CombatSystem, CombatPhase } from './Combat';
 import { aStar, clearPathCache } from './Pathfinding';
 import { Chest, generateEquipment, CRAFTING_RECIPES, MaterialType, MATERIALS } from './Equipment';
 import { SpriteManager, type SpriteData } from './Sprite';
+import { AssetManager } from './GameAssets';
 
 export const GameState = {
     Map: 0,
@@ -61,6 +62,9 @@ export class Game {
         this.renderer = new Renderer('gameCanvas', VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
         this.inputHandler = new InputHandler(this.handleInput.bind(this));
         // combatSystem initialized when combat starts
+
+        // Initialize asset manager for game visuals
+        AssetManager.init();
 
         // Load available player classes
         this.loadPlayerClasses();
@@ -590,8 +594,16 @@ export class Game {
         if (this.core.puzzleType === 'sequence') {
             // Simon-says style: press 1-4 to match the sequence
             if (puzzle.showingSequence) {
-                // Waiting for display, any key to start input
-                puzzle.showingSequence = false;
+                // Auto-advance the sequence display
+                puzzle.showTimer++;
+                if (puzzle.showTimer > 30) {
+                    puzzle.showTimer = 0;
+                    puzzle.showIndex++;
+                    if (puzzle.showIndex >= puzzle.sequence.length) {
+                        // Done showing, now player inputs
+                        puzzle.showingSequence = false;
+                    }
+                }
                 return;
             }
 
@@ -600,15 +612,20 @@ export class Game {
                 if (num === puzzle.sequence[puzzle.currentIndex]) {
                     puzzle.currentIndex++;
                     if (puzzle.currentIndex >= puzzle.sequence.length) {
-                        this.core.puzzleSolved = true;
-                        this.log("Puzzle solved! The Core is vulnerable!");
+                        // Puzzle complete!
+                        const allDone = this.core.completePuzzle();
+                        if (allDone) {
+                            this.log("All puzzles solved! The Core is vulnerable!");
+                            this.notify('Core Vulnerable!', 2000);
+                        } else {
+                            this.log(`Puzzle ${this.core.puzzlesCompleted}/${this.core.puzzlesRequired} complete! Lamp lit!`);
+                            this.notify(`Lamp ${this.core.puzzlesCompleted} Lit!`, 1500);
+                        }
                         this.state = GameState.Map;
                     }
                 } else {
-                    // Wrong input, reset
-                    puzzle.currentIndex = 0;
-                    puzzle.showingSequence = true;
-                    puzzle.showIndex = 0;
+                    // Wrong input, reset current puzzle
+                    this.core.resetCurrentPuzzle();
                     this.log("Wrong sequence! Try again...");
                 }
             }
@@ -634,8 +651,15 @@ export class Game {
                         puzzle.matchesMade++;
 
                         if (puzzle.matchesMade >= puzzle.matchesNeeded) {
-                            this.core.puzzleSolved = true;
-                            this.log("Puzzle solved! The Core is vulnerable!");
+                            // Puzzle complete!
+                            const allDone = this.core.completePuzzle();
+                            if (allDone) {
+                                this.log("All puzzles solved! The Core is vulnerable!");
+                                this.notify('Core Vulnerable!', 2000);
+                            } else {
+                                this.log(`Puzzle ${this.core.puzzlesCompleted}/${this.core.puzzlesRequired} complete! Lamp lit!`);
+                                this.notify(`Lamp ${this.core.puzzlesCompleted} Lit!`, 1500);
+                            }
                             this.state = GameState.Map;
                         }
                     } else {
@@ -679,18 +703,19 @@ export class Game {
                 }
 
                 if (correct) {
-                    this.core.puzzleSolved = true;
-                    this.log("Puzzle solved! The Core is vulnerable!");
+                    // Puzzle complete!
+                    const allDone = this.core.completePuzzle();
+                    if (allDone) {
+                        this.log("All puzzles solved! The Core is vulnerable!");
+                        this.notify('Core Vulnerable!', 2000);
+                    } else {
+                        this.log(`Puzzle ${this.core.puzzlesCompleted}/${this.core.puzzlesRequired} complete! Lamp lit!`);
+                        this.notify(`Lamp ${this.core.puzzlesCompleted} Lit!`, 1500);
+                    }
                     this.state = GameState.Map;
                 } else {
-                    // Reset
-                    puzzle.showingPattern = true;
-                    puzzle.showTimer = 60;
-                    for (let y = 0; y < puzzle.gridSize; y++) {
-                        for (let x = 0; x < puzzle.gridSize; x++) {
-                            puzzle.playerPattern[y][x] = false;
-                        }
-                    }
+                    // Reset current puzzle
+                    this.core.resetCurrentPuzzle();
                     this.log("Wrong pattern! Watch again...");
                 }
             }
@@ -699,7 +724,7 @@ export class Game {
 
     handleEnemyDeath(enemy: Entity) {
         this.log(`${enemy.name} dies!`);
-        
+
         // Calculate XP with potential bonus
         const baseXp = enemy.stats.xp;
         const xpBonus = Math.floor(baseXp * this.player.stats.xpBonus);
@@ -712,12 +737,12 @@ export class Game {
         if (this.player.stats.xp >= xpNeeded) {
             const overflow = this.player.stats.xp - xpNeeded;
             const overflowPercent = overflow / xpNeeded;
-            
+
             this.player.stats.xp = overflow;
             this.player.levelUp();
             this.log(`Level Up! You are now level ${this.player.stats.level}.`);
             this.player.stats.skillPoints += 3;
-            
+
             // Bonus level if overflow > 10%
             if (overflowPercent > 0.10) {
                 // Check if the remaining XP also exceeds the new level requirement
@@ -736,7 +761,7 @@ export class Game {
                     this.notify('BONUS LEVEL UP!', 2500);
                 }
             }
-            
+
             this.state = GameState.LevelUp;
         }
 

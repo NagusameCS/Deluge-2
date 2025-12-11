@@ -3,6 +3,7 @@ import { Entity, Item, Trap, Player, DungeonCore } from './Entity';
 import { TILE_SIZE, TileType, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from './utils';
 import { CombatSystem, CombatPhase, ACTIONS } from './Combat';
 import { Chest, RARITY_COLORS, RARITY_NAMES, CRAFTING_RECIPES, MATERIALS } from './Equipment';
+import { AssetManager, drawAsset } from './GameAssets';
 
 export class Renderer {
     canvas: HTMLCanvasElement;
@@ -102,15 +103,36 @@ export class Renderer {
 
         if (screenX < 0 || screenX >= VIEWPORT_WIDTH || screenY < 0 || screenY >= VIEWPORT_HEIGHT) return;
 
+        const px = screenX * TILE_SIZE;
+        const py = screenY * TILE_SIZE;
+
+        // Check if this is a DungeonCore and try to draw with asset
+        if (entity instanceof DungeonCore) {
+            const core = entity as DungeonCore;
+            const assetId = core.puzzleSolved ? 'dungeon_core_vulnerable' : 'dungeon_core';
+            const asset = AssetManager.getAsset(assetId);
+            
+            if (asset && drawAsset(this.ctx, asset, px, py, TILE_SIZE)) {
+                // Draw HP bar for core
+                const hpPercent = entity.stats.hp / entity.stats.maxHp;
+                this.ctx.fillStyle = 'red';
+                this.ctx.fillRect(px, py - 4, TILE_SIZE, 3);
+                this.ctx.fillStyle = 'green';
+                this.ctx.fillRect(px, py - 4, TILE_SIZE * hpPercent, 3);
+                return;
+            }
+        }
+
+        // Default entity drawing
         this.ctx.fillStyle = entity.color;
-        this.ctx.fillRect(screenX * TILE_SIZE, screenY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
 
         // Draw HP bar
         const hpPercent = entity.stats.hp / entity.stats.maxHp;
         this.ctx.fillStyle = 'red';
-        this.ctx.fillRect(screenX * TILE_SIZE, screenY * TILE_SIZE - 4, TILE_SIZE, 3);
+        this.ctx.fillRect(px, py - 4, TILE_SIZE, 3);
         this.ctx.fillStyle = 'green';
-        this.ctx.fillRect(screenX * TILE_SIZE, screenY * TILE_SIZE - 4, TILE_SIZE * hpPercent, 3);
+        this.ctx.fillRect(px, py - 4, TILE_SIZE * hpPercent, 3);
     }
 
     drawItem(item: Item, map: GameMap, camX: number, camY: number) {
@@ -121,6 +143,32 @@ export class Renderer {
 
         if (screenX < 0 || screenX >= VIEWPORT_WIDTH || screenY < 0 || screenY >= VIEWPORT_HEIGHT) return;
 
+        const px = screenX * TILE_SIZE;
+        const py = screenY * TILE_SIZE;
+
+        // Try to draw using asset system first
+        let assetId: string | null = null;
+        
+        if (item.type === ItemType.Potion) {
+            // Determine potion type by color
+            if (item.color === '#f44' || item.color === '#ff4444') {
+                assetId = 'health_potion';
+            } else if (item.color === '#44f' || item.color === '#4444ff') {
+                assetId = 'mana_potion';
+            }
+        } else if (item.type === ItemType.Coin) {
+            assetId = 'gold_coin';
+        }
+
+        // Try to draw asset
+        if (assetId) {
+            const asset = AssetManager.getAsset(assetId);
+            if (asset && drawAsset(this.ctx, asset, px, py, TILE_SIZE)) {
+                return; // Successfully drew asset
+            }
+        }
+
+        // Fallback to old drawing method
         this.ctx.fillStyle = item.color;
         const cx = screenX * TILE_SIZE + TILE_SIZE / 2;
         const cy = screenY * TILE_SIZE + TILE_SIZE / 2;
@@ -144,6 +192,23 @@ export class Renderer {
 
         if (screenX < 0 || screenX >= VIEWPORT_WIDTH || screenY < 0 || screenY >= VIEWPORT_HEIGHT) return;
 
+        const px = screenX * TILE_SIZE;
+        const py = screenY * TILE_SIZE;
+
+        // Try to draw using asset system
+        const assetId = 'spike_trap';
+        const asset = AssetManager.getAsset(assetId);
+        
+        if (asset && drawAsset(this.ctx, asset, px, py, TILE_SIZE)) {
+            // If triggered, add a red tint overlay
+            if (trap.triggered) {
+                this.ctx.fillStyle = 'rgba(255, 0, 0, 0.4)';
+                this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+            }
+            return;
+        }
+
+        // Fallback drawing
         this.ctx.fillStyle = '#555'; // Grey for trap
         if (trap.triggered) this.ctx.fillStyle = '#f00'; // Red if triggered
 
@@ -545,7 +610,18 @@ export class Renderer {
 
         if (screenX < 0 || screenX >= VIEWPORT_WIDTH || screenY < 0 || screenY >= VIEWPORT_HEIGHT) return;
 
-        // Draw chest
+        const px = screenX * TILE_SIZE;
+        const py = screenY * TILE_SIZE;
+
+        // Try to draw using asset system
+        const assetId = chest.opened ? 'chest_open' : 'chest_closed';
+        const asset = AssetManager.getAsset(assetId);
+        
+        if (asset && drawAsset(this.ctx, asset, px, py, TILE_SIZE)) {
+            return; // Successfully drew asset
+        }
+
+        // Fallback to old drawing method
         const cx = screenX * TILE_SIZE + TILE_SIZE / 2;
         const cy = screenY * TILE_SIZE + TILE_SIZE / 2;
 
@@ -843,6 +919,48 @@ export class Renderer {
         this.ctx.font = 'bold 24px monospace';
         this.ctx.textAlign = 'center';
         this.ctx.fillText('-- DUNGEON CORE PUZZLE --', centerX, 40);
+
+        // Draw lamps showing puzzle progress
+        const lampY = 60;
+        const lampSize = 20;
+        const lampSpacing = 50;
+        const lampsStartX = centerX - (core.puzzlesRequired * lampSpacing) / 2 + lampSpacing / 2;
+        
+        for (let i = 0; i < core.puzzlesRequired; i++) {
+            const lampX = lampsStartX + i * lampSpacing;
+            const isLit = core.lampStates[i];
+            
+            // Lamp base
+            this.ctx.fillStyle = '#444';
+            this.ctx.fillRect(lampX - 5, lampY + lampSize, 10, 8);
+            
+            // Lamp glow effect
+            if (isLit) {
+                this.ctx.fillStyle = 'rgba(255, 200, 50, 0.3)';
+                this.ctx.beginPath();
+                this.ctx.arc(lampX, lampY + lampSize / 2, lampSize * 1.5, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+            
+            // Lamp bulb
+            this.ctx.fillStyle = isLit ? '#ffc832' : '#333';
+            this.ctx.beginPath();
+            this.ctx.arc(lampX, lampY + lampSize / 2, lampSize / 2, 0, Math.PI * 2);
+            this.ctx.fill();
+            
+            // Lamp outline
+            this.ctx.strokeStyle = isLit ? '#ffdd66' : '#666';
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            this.ctx.arc(lampX, lampY + lampSize / 2, lampSize / 2, 0, Math.PI * 2);
+            this.ctx.stroke();
+            this.ctx.lineWidth = 1;
+        }
+        
+        // Progress text
+        this.ctx.fillStyle = '#aaa';
+        this.ctx.font = '12px monospace';
+        this.ctx.fillText(`Puzzles: ${core.puzzlesCompleted}/${core.puzzlesRequired}`, centerX, lampY + lampSize + 25);
 
         const puzzle = core.puzzleData;
 
