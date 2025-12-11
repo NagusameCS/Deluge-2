@@ -2847,8 +2847,8 @@ export class Renderer {
     }
 
     // NPC Trading screens
-    drawTrading(npc: { name: string; dialogue: string[]; inventory: { name: string; description: string; cost: number }[] },
-        selectedIndex: number, playerGold: number) {
+    drawTrading(npc: { name: string; dialogue: string[]; inventory: { name: string; description: string; cost: number }[] }, 
+                selectedIndex: number, playerGold: number) {
         this.ctx.fillStyle = 'rgba(10, 10, 30, 0.95)';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -2906,9 +2906,9 @@ export class Renderer {
         this.ctx.fillText('[↑/↓] Select  [ENTER] Buy  [ESC] Leave', this.canvas.width / 2, this.canvas.height - 20);
     }
 
-    drawSoulTrading(npc: { name: string; dialogue: string[] },
-        options: { from: string; to: string; fromAmount: number; toAmount: number; cost: number }[],
-        selectedIndex: number, playerGold: number, playerStats: { maxHp: number; maxMana: number; attack: number; defense: number }) {
+    drawSoulTrading(npc: { name: string; dialogue: string[] }, 
+                    options: { from: string; to: string; fromAmount: number; toAmount: number; cost: number }[],
+                    selectedIndex: number, playerGold: number, playerStats: { maxHp: number; maxMana: number; attack: number; defense: number }) {
         this.ctx.fillStyle = 'rgba(30, 10, 40, 0.95)';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -2954,7 +2954,7 @@ export class Renderer {
             const fromName = statNames[opt.from] || opt.from;
             const toName = statNames[opt.to] || opt.to;
             this.ctx.fillText(`-${opt.fromAmount} ${fromName} → +${opt.toAmount} ${toName}`, 40, y);
-
+            
             this.ctx.fillStyle = isSelected ? '#333' : (canAfford ? '#fd0' : '#800');
             this.ctx.textAlign = 'right';
             this.ctx.fillText(`${opt.cost} gold`, this.canvas.width - 40, y);
@@ -2968,173 +2968,5 @@ export class Renderer {
         this.ctx.textAlign = 'center';
         this.ctx.font = '12px monospace';
         this.ctx.fillText('[↑/↓] Select  [ENTER] Exchange  [ESC] Leave', this.canvas.width / 2, this.canvas.height - 20);
-    }
-
-    drawMainMenu(selectedOption: number, options: string[]) {
-        // Dark background with gradient effect
-        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
-        gradient.addColorStop(0, '#0a0a15');
-        gradient.addColorStop(0.5, '#101025');
-        gradient.addColorStop(1, '#0a0a15');
-        this.ctx.fillStyle = gradient;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-        // Decorative stars/particles
-        this.ctx.fillStyle = 'rgba(100, 150, 255, 0.3)';
-        for (let i = 0; i < 50; i++) {
-            const x = (Math.sin(i * 43.2 + Date.now() / 5000) * 0.5 + 0.5) * this.canvas.width;
-            const y = (Math.cos(i * 27.1 + Date.now() / 7000) * 0.5 + 0.5) * this.canvas.height;
-            const size = 1 + Math.sin(i * 12.3 + Date.now() / 1000) * 0.5;
-            this.ctx.beginPath();
-            this.ctx.arc(x, y, size, 0, Math.PI * 2);
-            this.ctx.fill();
-        }
-
-        // Title
-        this.ctx.textAlign = 'center';
-        this.ctx.font = 'bold 48px monospace';
-
-        // Glowing title effect
-        this.ctx.shadowColor = '#0af';
-        this.ctx.shadowBlur = 20;
-        this.ctx.fillStyle = '#0af';
-        this.ctx.fillText('DELUGE II', this.canvas.width / 2, 100);
-
-        this.ctx.shadowColor = '#fff';
-        this.ctx.shadowBlur = 10;
-        this.ctx.fillStyle = '#fff';
-        this.ctx.fillText('DELUGE II', this.canvas.width / 2, 100);
-        this.ctx.shadowBlur = 0;
-
-        // Subtitle
-        this.ctx.font = '16px monospace';
-        this.ctx.fillStyle = '#68a';
-        this.ctx.fillText('A Roguelike Adventure', this.canvas.width / 2, 130);
-
-        // Menu options
-        const startY = 220;
-        const spacing = 50;
-
-        for (let i = 0; i < options.length; i++) {
-            const y = startY + i * spacing;
-            const isSelected = i === selectedOption;
-
-            if (isSelected) {
-                // Selection highlight
-                this.ctx.fillStyle = 'rgba(0, 170, 255, 0.2)';
-                this.ctx.fillRect(this.canvas.width / 2 - 120, y - 20, 240, 35);
-
-                // Selection border
-                this.ctx.strokeStyle = '#0af';
-                this.ctx.lineWidth = 2;
-                this.ctx.strokeRect(this.canvas.width / 2 - 120, y - 20, 240, 35);
-
-                // Selected text
-                this.ctx.fillStyle = '#0af';
-                this.ctx.font = 'bold 20px monospace';
-                this.ctx.fillText(`▸ ${options[i]} ◂`, this.canvas.width / 2, y);
-            } else {
-                this.ctx.fillStyle = '#aaa';
-                this.ctx.font = '18px monospace';
-                this.ctx.fillText(options[i], this.canvas.width / 2, y);
-            }
-        }
-
-        // Controls hint
-        this.ctx.font = '12px monospace';
-        this.ctx.fillStyle = '#555';
-        this.ctx.fillText('[↑/↓] Navigate  [ENTER] Select', this.canvas.width / 2, this.canvas.height - 30);
-
-        // Version
-        this.ctx.fillStyle = '#333';
-        this.ctx.textAlign = 'left';
-        this.ctx.fillText('v2.0', 10, this.canvas.height - 10);
-    }
-
-    drawPuzzlePracticeMenu(selectedOption: number, _currentStreak: number, highScore: number, totalSolved: number) {
-        // Purple-themed background for puzzles
-        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
-        gradient.addColorStop(0, '#150820');
-        gradient.addColorStop(0.5, '#1a1030');
-        gradient.addColorStop(1, '#150820');
-        this.ctx.fillStyle = gradient;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-        // Title
-        this.ctx.textAlign = 'center';
-        this.ctx.font = 'bold 36px monospace';
-        this.ctx.fillStyle = '#c0f';
-        this.ctx.shadowColor = '#c0f';
-        this.ctx.shadowBlur = 15;
-        this.ctx.fillText('PUZZLE PRACTICE', this.canvas.width / 2, 60);
-        this.ctx.shadowBlur = 0;
-
-        // Stats display
-        this.ctx.font = '16px monospace';
-        this.ctx.fillStyle = '#aaa';
-        this.ctx.fillText(`High Score: ${highScore}`, this.canvas.width / 2, 110);
-        this.ctx.fillText(`Total Solved: ${totalSolved}`, this.canvas.width / 2, 135);
-
-        // Current difficulty indicator
-        const difficulty = Math.floor(totalSolved / 10) + 1;
-        this.ctx.fillStyle = '#0af';
-        this.ctx.fillText(`Current Difficulty: ${Math.min(difficulty, 20)}`, this.canvas.width / 2, 160);
-
-        // Menu options
-        const options = ['Start Practice', 'Reset High Score', 'Back to Menu'];
-        const startY = 230;
-        const spacing = 45;
-
-        for (let i = 0; i < options.length; i++) {
-            const y = startY + i * spacing;
-            const isSelected = i === selectedOption;
-
-            if (isSelected) {
-                this.ctx.fillStyle = 'rgba(200, 0, 255, 0.2)';
-                this.ctx.fillRect(this.canvas.width / 2 - 110, y - 18, 220, 32);
-                this.ctx.strokeStyle = '#c0f';
-                this.ctx.lineWidth = 2;
-                this.ctx.strokeRect(this.canvas.width / 2 - 110, y - 18, 220, 32);
-
-                this.ctx.fillStyle = '#c0f';
-                this.ctx.font = 'bold 18px monospace';
-                this.ctx.fillText(`▸ ${options[i]} ◂`, this.canvas.width / 2, y);
-            } else {
-                this.ctx.fillStyle = '#888';
-                this.ctx.font = '16px monospace';
-                this.ctx.fillText(options[i], this.canvas.width / 2, y);
-            }
-        }
-
-        // Puzzle type info
-        this.ctx.fillStyle = '#666';
-        this.ctx.font = '12px monospace';
-        this.ctx.fillText('Puzzle Types: Sequence • Match • Memory • Math', this.canvas.width / 2, this.canvas.height - 70);
-        this.ctx.fillText('Logic • Cipher • Slider • Wire', this.canvas.width / 2, this.canvas.height - 50);
-
-        // Controls
-        this.ctx.fillStyle = '#555';
-        this.ctx.fillText('[↑/↓] Navigate  [ENTER] Select  [ESC] Back', this.canvas.width / 2, this.canvas.height - 20);
-    }
-
-    drawPuzzlePractice(core: DungeonCore, streak: number) {
-        // Similar to regular puzzle but with streak display
-        this.drawPuzzle(core);
-
-        // Streak overlay
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        this.ctx.fillRect(10, 10, 150, 50);
-        this.ctx.strokeStyle = '#c0f';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(10, 10, 150, 50);
-
-        this.ctx.textAlign = 'left';
-        this.ctx.font = 'bold 16px monospace';
-        this.ctx.fillStyle = '#0f0';
-        this.ctx.fillText(`Streak: ${streak}`, 20, 35);
-
-        this.ctx.font = '12px monospace';
-        this.ctx.fillStyle = '#888';
-        this.ctx.fillText('ESC to quit', 20, 50);
     }
 }
