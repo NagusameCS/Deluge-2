@@ -111,7 +111,7 @@ export class Renderer {
             const core = entity as DungeonCore;
             const assetId = core.puzzleSolved ? 'dungeon_core_vulnerable' : 'dungeon_core';
             const asset = AssetManager.getAsset(assetId);
-            
+
             if (asset && drawAsset(this.ctx, asset, px, py, TILE_SIZE)) {
                 // Draw HP bar for core
                 const hpPercent = entity.stats.hp / entity.stats.maxHp;
@@ -148,7 +148,7 @@ export class Renderer {
 
         // Try to draw using asset system first
         let assetId: string | null = null;
-        
+
         if (item.type === ItemType.Potion) {
             // Determine potion type by color
             if (item.color === '#f44' || item.color === '#ff4444') {
@@ -198,7 +198,7 @@ export class Renderer {
         // Try to draw using asset system
         const assetId = 'spike_trap';
         const asset = AssetManager.getAsset(assetId);
-        
+
         if (asset && drawAsset(this.ctx, asset, px, py, TILE_SIZE)) {
             // If triggered, add a red tint overlay
             if (trap.triggered) {
@@ -616,7 +616,7 @@ export class Renderer {
         // Try to draw using asset system
         const assetId = chest.opened ? 'chest_open' : 'chest_closed';
         const asset = AssetManager.getAsset(assetId);
-        
+
         if (asset && drawAsset(this.ctx, asset, px, py, TILE_SIZE)) {
             return; // Successfully drew asset
         }
@@ -925,15 +925,15 @@ export class Renderer {
         const lampSize = 20;
         const lampSpacing = 50;
         const lampsStartX = centerX - (core.puzzlesRequired * lampSpacing) / 2 + lampSpacing / 2;
-        
+
         for (let i = 0; i < core.puzzlesRequired; i++) {
             const lampX = lampsStartX + i * lampSpacing;
             const isLit = core.lampStates[i];
-            
+
             // Lamp base
             this.ctx.fillStyle = '#444';
             this.ctx.fillRect(lampX - 5, lampY + lampSize, 10, 8);
-            
+
             // Lamp glow effect
             if (isLit) {
                 this.ctx.fillStyle = 'rgba(255, 200, 50, 0.3)';
@@ -941,13 +941,13 @@ export class Renderer {
                 this.ctx.arc(lampX, lampY + lampSize / 2, lampSize * 1.5, 0, Math.PI * 2);
                 this.ctx.fill();
             }
-            
+
             // Lamp bulb
             this.ctx.fillStyle = isLit ? '#ffc832' : '#333';
             this.ctx.beginPath();
             this.ctx.arc(lampX, lampY + lampSize / 2, lampSize / 2, 0, Math.PI * 2);
             this.ctx.fill();
-            
+
             // Lamp outline
             this.ctx.strokeStyle = isLit ? '#ffdd66' : '#666';
             this.ctx.lineWidth = 2;
@@ -956,7 +956,7 @@ export class Renderer {
             this.ctx.stroke();
             this.ctx.lineWidth = 1;
         }
-        
+
         // Progress text
         this.ctx.fillStyle = '#aaa';
         this.ctx.font = '12px monospace';

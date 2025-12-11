@@ -50,7 +50,7 @@ function init() {
 
     // Load saved sprites
     loadSprites();
-    
+
     // Load assets
     loadAssets();
 
@@ -672,7 +672,7 @@ function showNotification(message: string) {
 function loadAssets() {
     // Load all assets - both built-in and custom
     assets = [];
-    
+
     // Add built-in assets
     for (const asset of BUILTIN_ASSETS) {
         // Check if there's a custom version
@@ -721,8 +721,8 @@ function renderAssetList() {
     list.innerHTML = '';
 
     // Filter assets by category
-    const filteredAssets = currentAssetCategory === 'all' 
-        ? assets 
+    const filteredAssets = currentAssetCategory === 'all'
+        ? assets
         : assets.filter(a => a.category === currentAssetCategory);
 
     filteredAssets.forEach(asset => {
@@ -735,7 +735,7 @@ function renderAssetList() {
         previewCanvas.height = 24;
         const previewCtx = previewCanvas.getContext('2d')!;
         previewCtx.imageSmoothingEnabled = false;
-        
+
         // Draw the asset at 3x scale
         for (let y = 0; y < 8; y++) {
             for (let x = 0; x < 8; x++) {
@@ -796,7 +796,7 @@ function loadAssetToCanvas() {
 
     // Load asset pixels to the editor canvas
     pixelData = asset.pixels.map(row => [...row]);
-    
+
     // Clear sprite selection to indicate we're editing an asset
     currentSpriteIndex = -1;
     document.querySelectorAll('.sprite-item').forEach(item => item.classList.remove('selected'));
@@ -826,10 +826,10 @@ function saveCurrentAsset() {
 
     // Save to storage
     AssetManager.saveAsset(updatedAsset);
-    
+
     // Update local array
     assets[assetIndex] = updatedAsset;
-    
+
     renderAssetList();
     showNotification(`Saved ${updatedAsset.name}!`);
 }
@@ -849,16 +849,16 @@ function resetSelectedAsset() {
 
     // Delete custom version
     AssetManager.deleteAsset(selectedAssetId);
-    
+
     // Reload assets
     loadAssets();
     renderAssetList();
-    
+
     // Load default to canvas
     pixelData = builtinAsset.pixels.map(row => [...row]);
     renderCanvas();
     updatePreviews();
-    
+
     showNotification(`Reset ${builtinAsset.name} to default`);
 }
 

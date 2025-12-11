@@ -381,13 +381,13 @@ export function drawAsset(
     size: number = 32
 ): boolean {
     let asset: GameAsset | undefined;
-    
+
     if (typeof assetOrId === 'string') {
         asset = AssetManager.getAsset(assetOrId);
     } else {
         asset = assetOrId;
     }
-    
+
     if (!asset || !asset.pixels) {
         return false;
     }
@@ -402,6 +402,6 @@ export function drawAsset(
             }
         }
     }
-    
+
     return true;
 }
