@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Deluge-2 Sprite Editor</title>
+    <title>Deluge-2 Pixel Art Editor</title>
     <style>
         * {
             margin: 0;
@@ -13,249 +13,329 @@
         }
 
         body {
-            font-family: 'Courier New', monospace;
-            background: #0a0a0f;
-            color: #fff;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 50%, #0d0d1a 100%);
+            color: #e0e0e0;
             min-height: 100vh;
-            padding: 20px;
+            overflow-x: hidden;
         }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        h1 {
-            color: #4af;
-            text-align: center;
-            margin-bottom: 20px;
-            text-shadow: 0 0 10px #4af;
-        }
-
-        .editor-layout {
-            display: grid;
-            grid-template-columns: 300px 1fr 350px;
-            gap: 20px;
-        }
-
-        .panel {
-            background: rgba(20, 20, 30, 0.9);
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 15px;
-        }
-
-        .panel h2 {
-            color: #ff0;
-            font-size: 14px;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
+        /* Header */
+        .header {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             border-bottom: 1px solid #333;
+            backdrop-filter: blur(10px);
         }
 
-        /* Canvas area */
-        .canvas-container {
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #4af;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .back-link {
+            color: #888;
+            text-decoration: none;
+            font-size: 14px;
+            transition: color 0.2s;
+        }
+
+        .back-link:hover {
+            color: #4af;
+        }
+
+        /* Main Layout */
+        .main-container {
+            display: grid;
+            grid-template-columns: 260px 1fr 320px;
+            gap: 0;
+            height: calc(100vh - 57px);
+        }
+
+        /* Panels */
+        .panel {
+            background: rgba(15, 15, 25, 0.95);
+            border-right: 1px solid #2a2a3a;
+            padding: 16px;
+            overflow-y: auto;
+        }
+
+        .panel:last-child {
+            border-right: none;
+            border-left: 1px solid #2a2a3a;
+        }
+
+        .panel-section {
+            margin-bottom: 20px;
+        }
+
+        .panel-title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #666;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg, #333 0%, transparent 100%);
+        }
+
+        /* Canvas Area */
+        .canvas-area {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 20px;
+            justify-content: center;
+            background: #0a0a12;
+            position: relative;
+        }
+
+        .canvas-wrapper {
+            position: relative;
+            border: 2px solid #333;
+            border-radius: 4px;
+            box-shadow: 0 0 40px rgba(68, 170, 255, 0.1);
         }
 
         #spriteCanvas {
-            border: 2px solid #4af;
+            display: block;
             cursor: crosshair;
             image-rendering: pixelated;
         }
 
-        .preview-row {
+        .canvas-coords {
+            position: absolute;
+            bottom: -28px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            color: #666;
+            font-family: monospace;
+        }
+
+        /* Toolbar */
+        .toolbar {
             display: flex;
-            gap: 20px;
+            gap: 4px;
+            margin-bottom: 20px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+        }
+
+        .tool-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: transparent;
+            color: #888;
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 18px;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tool-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .tool-btn.active {
+            background: #4af;
+            color: #000;
+        }
+
+        .toolbar-divider {
+            width: 1px;
+            background: #333;
+            margin: 4px 8px;
+        }
+
+        /* Color Picker Section */
+        .color-current {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            align-items: stretch;
+        }
+
+        .color-preview-large {
+            width: 64px;
+            height: 64px;
+            border-radius: 8px;
+            border: 2px solid #444;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .color-preview-large.transparent {
+            background: repeating-conic-gradient(#444 0% 25%, #222 0% 50%) 50% / 12px 12px;
+        }
+
+        .color-inputs {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .color-input-row {
+            display: flex;
+            gap: 8px;
             align-items: center;
         }
 
-        #previewCanvas {
-            border: 1px solid #666;
-            image-rendering: pixelated;
-        }
-
-        .preview-info {
-            color: #888;
-            font-size: 12px;
-        }
-
-        /* Color palette */
-        .color-palette {
-            display: grid;
-            grid-template-columns: repeat(8, 1fr);
-            gap: 4px;
-            margin-bottom: 15px;
-        }
-
-        .color-swatch {
-            width: 30px;
-            height: 30px;
-            border: 2px solid #333;
-            cursor: pointer;
-            border-radius: 4px;
-        }
-
-        .color-swatch:hover {
-            border-color: #fff;
-        }
-
-        .color-swatch.selected {
-            border-color: #4af;
-            box-shadow: 0 0 8px #4af;
-        }
-
-        .color-swatch.transparent {
-            background: repeating-conic-gradient(#666 0% 25%, #333 0% 50%) 50% / 10px 10px;
-        }
-
-        #customColor {
-            width: 100%;
-            height: 40px;
-            margin-top: 10px;
-            cursor: pointer;
-        }
-
-        /* Form inputs */
-        .form-group {
-            margin-bottom: 12px;
-        }
-
-        .form-group label {
-            display: block;
-            color: #888;
+        .color-input-row label {
             font-size: 11px;
-            margin-bottom: 4px;
-            text-transform: uppercase;
+            color: #666;
+            width: 24px;
         }
 
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            padding: 8px;
+        .color-input-row input[type="text"] {
+            flex: 1;
+            padding: 6px 10px;
             background: #1a1a25;
             border: 1px solid #333;
             border-radius: 4px;
             color: #fff;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-        }
-
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
-            outline: none;
-            border-color: #4af;
-        }
-
-        .form-group textarea {
-            min-height: 60px;
-            resize: vertical;
-        }
-
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        /* Moveset editor */
-        .moveset-list {
-            max-height: 200px;
-            overflow-y: auto;
-            margin-bottom: 10px;
-        }
-
-        .moveset-item {
-            background: #1a1a25;
-            border: 1px solid #333;
-            border-radius: 4px;
-            padding: 8px;
-            margin-bottom: 8px;
-            cursor: pointer;
-        }
-
-        .moveset-item:hover {
-            border-color: #4af;
-        }
-
-        .moveset-item.selected {
-            border-color: #ff0;
-            background: #252530;
-        }
-
-        .moveset-item .name {
-            color: #4af;
-            font-weight: bold;
-        }
-
-        .moveset-item .cost {
-            color: #888;
-            font-size: 11px;
-        }
-
-        /* Asset list items */
-        .asset-item {
-            background: #1a1a25;
-            border: 1px solid #333;
-            border-radius: 4px;
-            padding: 8px;
-            margin-bottom: 8px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .asset-item:hover {
-            border-color: #4af;
-        }
-
-        .asset-item.selected {
-            border-color: #ff0;
-            background: #252530;
-        }
-
-        .asset-item canvas {
-            border: 1px solid #444;
-            image-rendering: pixelated;
-        }
-
-        .asset-item .info {
-            flex: 1;
-        }
-
-        .asset-item .name {
-            color: #4af;
-            font-weight: bold;
+            font-family: monospace;
             font-size: 12px;
         }
 
-        .asset-item .category {
-            color: #888;
-            font-size: 10px;
-            text-transform: uppercase;
+        .color-input-row input[type="range"] {
+            flex: 1;
+            height: 6px;
+            -webkit-appearance: none;
+            background: linear-gradient(90deg, transparent, #fff);
+            border-radius: 3px;
         }
 
-        .asset-item .modified {
-            color: #0f0;
-            font-size: 9px;
+        .color-input-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid #333;
         }
 
-        /* Buttons */
-        .btn {
-            padding: 10px 20px;
+        .color-input-row input[type="number"] {
+            width: 50px;
+            padding: 4px 6px;
+            background: #1a1a25;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 11px;
+            text-align: center;
+        }
+
+        input[type="color"] {
+            width: 32px;
+            height: 32px;
             border: none;
+            padding: 0;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        /* Color Palette */
+        .color-palette {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 3px;
+        }
+
+        .color-swatch {
+            aspect-ratio: 1;
+            border: 2px solid transparent;
             border-radius: 4px;
             cursor: pointer;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            font-weight: bold;
-            transition: all 0.2s;
+            transition: all 0.1s;
+        }
+
+        .color-swatch:hover {
+            transform: scale(1.1);
+            z-index: 1;
+        }
+
+        .color-swatch.selected {
+            border-color: #fff;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+        }
+
+        .color-swatch.transparent {
+            background: repeating-conic-gradient(#444 0% 25%, #222 0% 50%) 50% / 8px 8px;
+        }
+
+        /* Preview Section */
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .preview-item {
+            text-align: center;
+        }
+
+        .preview-item canvas {
+            border: 1px solid #333;
+            border-radius: 4px;
+            image-rendering: pixelated;
+            margin-bottom: 4px;
+        }
+
+        .preview-item span {
+            font-size: 10px;
+            color: #666;
+        }
+
+        /* Action Buttons */
+        .action-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 8px 14px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-icon {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            justify-content: center;
         }
 
         .btn-primary {
@@ -265,16 +345,17 @@
 
         .btn-primary:hover {
             background: #5bf;
-            box-shadow: 0 0 10px #4af;
+            box-shadow: 0 0 12px rgba(68, 170, 255, 0.4);
         }
 
         .btn-secondary {
-            background: #333;
-            color: #fff;
+            background: #2a2a3a;
+            color: #aaa;
         }
 
         .btn-secondary:hover {
-            background: #444;
+            background: #3a3a4a;
+            color: #fff;
         }
 
         .btn-danger {
@@ -287,48 +368,19 @@
         }
 
         .btn-success {
-            background: #0a0;
+            background: #2a5;
             color: #fff;
         }
 
         .btn-success:hover {
-            background: #0c0;
+            background: #3b6;
         }
 
-        .btn-group {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        /* Tools */
-        .tools {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        .tool-btn {
-            padding: 8px 12px;
-            background: #222;
-            border: 1px solid #444;
-            color: #fff;
-            cursor: pointer;
-            border-radius: 4px;
-        }
-
-        .tool-btn:hover {
-            background: #333;
-        }
-
-        .tool-btn.active {
-            background: #4af;
-            color: #000;
-            border-color: #4af;
-        }
-
-        /* Sprite list */
+        /* Sprite List */
         .sprite-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
             max-height: 300px;
             overflow-y: auto;
         }
@@ -337,97 +389,118 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 8px;
-            background: #1a1a25;
-            border: 1px solid #333;
-            border-radius: 4px;
-            margin-bottom: 8px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
             cursor: pointer;
+            transition: all 0.15s;
         }
 
         .sprite-item:hover {
+            background: rgba(68, 170, 255, 0.1);
+            border-color: #4af;
+        }
+
+        .sprite-item.selected {
+            background: rgba(68, 170, 255, 0.15);
             border-color: #4af;
         }
 
         .sprite-item canvas {
+            border-radius: 4px;
             image-rendering: pixelated;
         }
 
         .sprite-item .info {
             flex: 1;
+            min-width: 0;
         }
 
         .sprite-item .name {
-            color: #4af;
-            font-weight: bold;
+            font-size: 13px;
+            font-weight: 500;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .sprite-item .type {
-            color: #888;
             font-size: 11px;
+            color: #666;
         }
 
-        /* Modal */
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 11px;
+            color: #666;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
             width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-
-        .modal.active {
-            display: flex;
-        }
-
-        .modal-content {
+            padding: 8px 12px;
             background: #1a1a25;
-            border: 1px solid #4af;
-            border-radius: 8px;
-            padding: 20px;
-            max-width: 500px;
-            width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 13px;
+            transition: border-color 0.15s;
         }
 
-        .modal h3 {
-            color: #4af;
-            margin-bottom: 15px;
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #4af;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
         }
 
         /* Tabs */
         .tabs {
             display: flex;
-            gap: 0;
-            margin-bottom: 15px;
+            gap: 4px;
+            margin-bottom: 16px;
+            padding: 4px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
         }
 
         .tab {
-            padding: 10px 20px;
-            background: #1a1a25;
-            border: 1px solid #333;
-            color: #888;
+            flex: 1;
+            padding: 8px 12px;
+            background: transparent;
+            border: none;
+            color: #666;
             cursor: pointer;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.15s;
         }
 
-        .tab:first-child {
-            border-radius: 4px 0 0 4px;
-        }
-
-        .tab:last-child {
-            border-radius: 0 4px 4px 0;
+        .tab:hover {
+            color: #aaa;
         }
 
         .tab.active {
             background: #4af;
             color: #000;
-            border-color: #4af;
         }
 
         .tab-content {
@@ -438,348 +511,421 @@
             display: block;
         }
 
-        /* Back link */
-        .back-link {
-            display: inline-block;
+        /* Asset/Move Lists */
+        .list-container {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 12px;
+        }
+
+        .list-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 6px;
+            transition: all 0.15s;
+        }
+
+        .list-item:hover {
+            border-color: #4af;
+        }
+
+        .list-item.selected {
+            background: rgba(68, 170, 255, 0.1);
+            border-color: #4af;
+        }
+
+        .list-item canvas {
+            border-radius: 3px;
+            image-rendering: pixelated;
+        }
+
+        .list-item .name {
+            font-size: 12px;
+            font-weight: 500;
             color: #4af;
-            text-decoration: none;
-            margin-bottom: 20px;
         }
 
-        .back-link:hover {
-            text-decoration: underline;
-        }
-
-        /* Drop zone */
-        .drop-zone {
-            border: 2px dashed #444;
-            border-radius: 8px;
-            padding: 30px;
-            text-align: center;
+        .list-item .desc {
+            font-size: 10px;
             color: #666;
-            margin-bottom: 15px;
-            transition: all 0.2s;
         }
 
+        /* Keyboard shortcuts hint */
+        .shortcuts-hint {
+            position: fixed;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 20px;
+            font-size: 11px;
+            color: #666;
+        }
+
+        .shortcuts-hint kbd {
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin: 0 2px;
+            color: #aaa;
+        }
+
+        /* Drop Zone */
+        .drop-zone {
+            border: 2px dashed #333;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            color: #555;
+            font-size: 12px;
+            margin-bottom: 12px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .drop-zone:hover,
         .drop-zone.dragover {
             border-color: #4af;
-            background: rgba(68, 170, 255, 0.1);
+            background: rgba(68, 170, 255, 0.05);
             color: #4af;
         }
 
+        /* Notification */
+        .notification {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            padding: 12px 20px;
+            background: #4af;
+            color: #000;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 13px;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* Undo/Redo counter */
+        .history-info {
+            font-size: 10px;
+            color: #555;
+            text-align: center;
+            margin-top: 8px;
+        }
+
+        /* Canvas zoom controls */
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .zoom-controls span {
+            font-size: 12px;
+            color: #666;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        /* Grid size selector */
+        .grid-size-selector {
+            display: flex;
+            gap: 4px;
+        }
+
+        .grid-size-btn {
+            padding: 6px 12px;
+            background: #2a2a3a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #888;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.15s;
+        }
+
+        .grid-size-btn:hover {
+            background: #3a3a4a;
+        }
+
+        .grid-size-btn.active {
+            background: #4af;
+            color: #000;
+            border-color: #4af;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1a1a25;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #444;
+        }
+
+        /* Responsive */
         @media (max-width: 1200px) {
-            .editor-layout {
+            .main-container {
                 grid-template-columns: 1fr;
+            }
+
+            .panel {
+                border-right: none;
+                border-bottom: 1px solid #2a2a3a;
             }
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <a href="/" class="back-link">← Back to Game</a>
-        <h1>SPRITE EDITOR</h1>
+    <!-- Header -->
+    <div class="header">
+        <h1>PIXEL ART EDITOR</h1>
+        <a href="./" class="back-link">Back to Game</a>
+    </div>
 
-        <div class="editor-layout">
-            <!-- Left Panel: Sprite List & Tools -->
-            <div class="panel">
-                <h2>SPRITES</h2>
+    <div class="main-container">
+        <!-- Left Panel: Sprites & Assets -->
+        <div class="panel">
+            <div class="panel-section">
+                <div class="panel-title">Sprites</div>
 
                 <div class="drop-zone" id="dropZone">
-                    Drop .sprite files here<br>
-                    <small>or click to import</small>
-                    <input type="file" id="fileInput" accept=".sprite,.json" style="display: none;">
+                    Drop .sprite files or click to import
+                    <input type="file" id="fileInput" accept=".sprite,.json" multiple style="display: none;">
                 </div>
 
-                <div class="btn-group" style="margin-bottom: 15px;">
-                    <button class="btn btn-primary" id="newSpriteBtn">+ New Sprite</button>
+                <div class="action-row" style="margin-bottom: 12px;">
+                    <button class="btn btn-primary" id="newSpriteBtn">+ New</button>
+                    <button class="btn btn-secondary" id="duplicateBtn">Duplicate</button>
                 </div>
 
                 <div class="sprite-list" id="spriteList"></div>
             </div>
 
-            <!-- Center: Canvas -->
-            <div class="panel canvas-container">
-                <div class="tools">
-                    <button class="tool-btn active" data-tool="draw">Draw</button>
-                    <button class="tool-btn" data-tool="erase">Erase</button>
-                    <button class="tool-btn" data-tool="fill">Fill</button>
-                    <button class="tool-btn" data-tool="pick">Pick Color</button>
+            <div class="panel-section">
+                <div class="panel-title">Canvas Size</div>
+                <div class="grid-size-selector">
+                    <button class="grid-size-btn active" data-size="8">8x8</button>
+                    <button class="grid-size-btn" data-size="16">16x16</button>
+                    <button class="grid-size-btn" data-size="32">32x32</button>
                 </div>
+            </div>
+        </div>
 
+        <!-- Center: Canvas -->
+        <div class="canvas-area">
+            <div class="toolbar">
+                <button class="tool-btn active" data-tool="draw" title="Draw (D)">D</button>
+                <button class="tool-btn" data-tool="erase" title="Erase (E)">E</button>
+                <button class="tool-btn" data-tool="fill" title="Fill (F)">F</button>
+                <button class="tool-btn" data-tool="pick" title="Color Picker (I)">I</button>
+                <button class="tool-btn" data-tool="line" title="Line (L)">L</button>
+                <button class="tool-btn" data-tool="rect" title="Rectangle (R)">R</button>
+                <div class="toolbar-divider"></div>
+                <button class="tool-btn" id="undoBtn" title="Undo (Ctrl+Z)">U</button>
+                <button class="tool-btn" id="redoBtn" title="Redo (Ctrl+Y)">Y</button>
+                <div class="toolbar-divider"></div>
+                <button class="tool-btn" id="clearBtn" title="Clear">X</button>
+                <button class="tool-btn" id="mirrorHBtn" title="Mirror Horizontal">H</button>
+                <button class="tool-btn" id="mirrorVBtn" title="Mirror Vertical">V</button>
+                <button class="tool-btn" id="rotateBtn" title="Rotate 90">T</button>
+            </div>
+
+            <div class="canvas-wrapper">
                 <canvas id="spriteCanvas" width="256" height="256"></canvas>
+                <div class="canvas-coords" id="canvasCoords">0, 0</div>
+            </div>
 
-                <div class="preview-row">
-                    <div>
-                        <div class="preview-info">1x Preview</div>
-                        <canvas id="previewCanvas1x" width="8" height="8"></canvas>
-                    </div>
-                    <div>
-                        <div class="preview-info">4x Preview</div>
-                        <canvas id="previewCanvas4x" width="32" height="32"></canvas>
-                    </div>
-                    <div>
-                        <div class="preview-info">In-Game Size</div>
-                        <canvas id="previewCanvasGame" width="32" height="32"></canvas>
+            <div class="zoom-controls">
+                <button class="btn btn-icon btn-secondary" id="zoomOutBtn">-</button>
+                <span id="zoomLevel">100%</span>
+                <button class="btn btn-icon btn-secondary" id="zoomInBtn">+</button>
+            </div>
+
+            <div class="history-info" id="historyInfo">History: 0/0</div>
+        </div>
+
+        <!-- Right Panel: Properties -->
+        <div class="panel">
+            <div class="panel-section">
+                <div class="panel-title">Color</div>
+
+                <div class="color-current">
+                    <div class="color-preview-large" id="colorPreview"></div>
+                    <div class="color-inputs">
+                        <div class="color-input-row">
+                            <label>Hex</label>
+                            <input type="text" id="colorHex" value="#44aaff" maxlength="9">
+                            <input type="color" id="colorPicker" value="#44aaff">
+                        </div>
+                        <div class="color-input-row">
+                            <label>A</label>
+                            <input type="range" id="alphaSlider" min="0" max="100" value="100">
+                            <input type="number" id="alphaValue" min="0" max="100" value="100">
+                        </div>
                     </div>
                 </div>
 
-                <div class="btn-group">
-                    <button class="btn btn-secondary" id="clearBtn">Clear</button>
-                    <button class="btn btn-secondary" id="mirrorBtn">Mirror H</button>
-                    <button class="btn btn-secondary" id="rotateBtn">Rotate 90°</button>
+                <div class="color-palette" id="colorPalette"></div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">Preview</div>
+                <div class="preview-grid">
+                    <div class="preview-item">
+                        <canvas id="preview1x" width="8" height="8"></canvas>
+                        <span>1x</span>
+                    </div>
+                    <div class="preview-item">
+                        <canvas id="preview2x" width="16" height="16"></canvas>
+                        <span>2x</span>
+                    </div>
+                    <div class="preview-item">
+                        <canvas id="preview4x" width="32" height="32"></canvas>
+                        <span>4x</span>
+                    </div>
                 </div>
             </div>
 
-            <!-- Right Panel: Properties -->
-            <div class="panel">
-                <div class="tabs">
-                    <div class="tab active" data-tab="meta">Info</div>
-                    <div class="tab" data-tab="stats">Stats</div>
-                    <div class="tab" data-tab="moveset">Moveset</div>
-                    <div class="tab" data-tab="assets">Assets</div>
+            <div class="tabs">
+                <button class="tab active" data-tab="meta">Info</button>
+                <button class="tab" data-tab="stats">Stats</button>
+                <button class="tab" data-tab="assets">Assets</button>
+            </div>
+
+            <!-- Info Tab -->
+            <div class="tab-content active" id="tab-meta">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="spriteName" placeholder="My Sprite">
                 </div>
-
-                <!-- Metadata Tab -->
-                <div class="tab-content active" id="tab-meta">
-                    <h2>COLORS</h2>
-                    <div class="color-palette" id="colorPalette"></div>
-                    <input type="color" id="customColor" value="#4af">
-
-                    <h2 style="margin-top: 20px;">METADATA</h2>
-                    <div class="form-group">
-                        <label>Sprite ID</label>
-                        <input type="text" id="spriteId" placeholder="my_sprite">
-                    </div>
-                    <div class="form-group">
-                        <label>Name</label>
-                        <input type="text" id="spriteName" placeholder="My Sprite">
-                    </div>
+                <div class="form-row">
                     <div class="form-group">
                         <label>Type</label>
                         <select id="spriteType">
-                            <option value="player">Player Class</option>
+                            <option value="player">Player</option>
                             <option value="enemy">Enemy</option>
                             <option value="npc">NPC</option>
+                            <option value="item">Item</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Description</label>
-                        <textarea id="spriteDesc" placeholder="A description of this sprite..."></textarea>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>ASCII Char</label>
-                            <input type="text" id="spriteChar" maxlength="1" placeholder="@">
-                        </div>
-                        <div class="form-group">
-                            <label>Primary Color</label>
-                            <input type="color" id="spriteColor" value="#4af">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Author</label>
-                        <input type="text" id="spriteAuthor" placeholder="Your name">
+                        <label>Character</label>
+                        <input type="text" id="spriteChar" maxlength="1" placeholder="@">
                     </div>
                 </div>
-
-                <!-- Stats Tab -->
-                <div class="tab-content" id="tab-stats">
-                    <h2>BASE STATS</h2>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Base HP</label>
-                            <input type="number" id="statHp" value="50" min="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Base Mana</label>
-                            <input type="number" id="statMana" value="30" min="0">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Attack</label>
-                            <input type="number" id="statAttack" value="5" min="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Defense</label>
-                            <input type="number" id="statDefense" value="1" min="0">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Crit Chance %</label>
-                            <input type="number" id="statCrit" value="5" min="0" max="100">
-                        </div>
-                        <div class="form-group">
-                            <label>Dodge Chance %</label>
-                            <input type="number" id="statDodge" value="5" min="0" max="100">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Speed</label>
-                        <input type="number" id="statSpeed" value="5" min="1" max="10">
-                    </div>
-
-                    <h2 style="margin-top: 20px;">ENEMY BEHAVIOR</h2>
-                    <div class="form-group">
-                        <label>AI Pattern</label>
-                        <select id="behaviorPattern">
-                            <option value="aggressive">Aggressive</option>
-                            <option value="defensive">Defensive</option>
-                            <option value="tricky">Tricky</option>
-                            <option value="balanced">Balanced</option>
-                            <option value="fleeing">Fleeing (Golden)</option>
-                        </select>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Aggro Range</label>
-                            <input type="number" id="behaviorAggro" value="8" min="1" max="20">
-                        </div>
-                        <div class="form-group">
-                            <label>Min Floor</label>
-                            <input type="number" id="behaviorMinFloor" value="1" min="1">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>
-                            <input type="checkbox" id="isBoss"> Is Boss
-                        </label>
-                    </div>
-                    <div class="form-group">
-                        <label>
-                            <input type="checkbox" id="isGolden"> Is Golden (5x rewards, flees)
-                        </label>
-                    </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="spriteDesc" rows="2" placeholder="Description..."></textarea>
                 </div>
 
-                <!-- Moveset Tab -->
-                <div class="tab-content" id="tab-moveset">
-                    <h2>COMBAT MOVES</h2>
-                    <div class="moveset-list" id="movesetList"></div>
-                    <div class="btn-group">
-                        <button class="btn btn-primary" id="addMoveBtn">+ Add Move</button>
-                        <button class="btn btn-danger" id="removeMoveBtn">Remove</button>
-                    </div>
-
-                    <div id="moveEditor" style="margin-top: 15px; display: none;">
-                        <h2>EDIT MOVE</h2>
-                        <div class="form-group">
-                            <label>Move Name</label>
-                            <input type="text" id="moveName" placeholder="Strike">
-                        </div>
-                        <div class="form-group">
-                            <label>Description</label>
-                            <input type="text" id="moveDesc" placeholder="A quick attack">
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Stamina Cost</label>
-                                <input type="number" id="moveStamina" value="15" min="0">
-                            </div>
-                            <div class="form-group">
-                                <label>Mana Cost</label>
-                                <input type="number" id="moveMana" value="0" min="0">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Base Damage</label>
-                                <input type="number" id="moveDamage" value="1.0" min="0" step="0.1">
-                            </div>
-                            <div class="form-group">
-                                <label>Speed</label>
-                                <input type="number" id="moveSpeed" value="5" min="1" max="10">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Hotkey</label>
-                                <input type="text" id="moveKey" maxlength="1" placeholder="1">
-                            </div>
-                            <div class="form-group">
-                                <label>Special Effect</label>
-                                <select id="moveSpecial">
-                                    <option value="">None</option>
-                                    <option value="stun">Stun</option>
-                                    <option value="poison">Poison</option>
-                                    <option value="slow">Slow</option>
-                                    <option value="heal">Heal Self</option>
-                                    <option value="buff_attack">Buff Attack</option>
-                                    <option value="restore_mana">Restore Mana</option>
-                                    <option value="crit_boost">Crit Boost</option>
-                                    <option value="dodge_boost">Dodge Boost</option>
-                                </select>
-                            </div>
-                        </div>
-                        <button class="btn btn-success" id="saveMoveBtn">Save Move</button>
-                    </div>
+                <div class="action-row">
+                    <button class="btn btn-success" id="saveBtn">Save</button>
+                    <button class="btn btn-secondary" id="exportBtn">Export</button>
+                    <button class="btn btn-danger" id="deleteBtn">Del</button>
                 </div>
+            </div>
 
-                <!-- Assets Tab -->
-                <div class="tab-content" id="tab-assets">
-                    <h2>GAME ASSETS</h2>
-                    <p style="color: #888; font-size: 11px; margin-bottom: 10px;">
-                        Edit visual assets used in-game (items, objects, etc.)
-                    </p>
-
+            <!-- Stats Tab -->
+            <div class="tab-content" id="tab-stats">
+                <div class="form-row">
                     <div class="form-group">
-                        <label>Asset Category</label>
-                        <select id="assetCategory">
-                            <option value="all">All Categories</option>
-                            <option value="item">Items</option>
-                            <option value="object">Objects</option>
-                            <option value="trap">Traps</option>
-                            <option value="material">Materials</option>
-                        </select>
+                        <label>HP</label>
+                        <input type="number" id="statHp" value="50" min="1">
                     </div>
-
-                    <div class="asset-list" id="assetList"
-                        style="max-height: 250px; overflow-y: auto; margin-bottom: 10px;"></div>
-
-                    <div class="btn-group">
-                        <button class="btn btn-primary" id="loadAssetBtn">Load to Canvas</button>
-                        <button class="btn btn-success" id="saveAssetBtn">Save Asset</button>
-                        <button class="btn btn-secondary" id="resetAssetBtn">Reset to Default</button>
-                    </div>
-
-                    <div id="assetInfo" style="margin-top: 15px; display: none;">
-                        <h2>ASSET INFO</h2>
-                        <div class="form-group">
-                            <label>Asset ID</label>
-                            <input type="text" id="assetId" readonly style="background: #111;">
-                        </div>
-                        <div class="form-group">
-                            <label>Asset Name</label>
-                            <input type="text" id="assetName">
-                        </div>
-                        <div class="form-group">
-                            <label>Description</label>
-                            <textarea id="assetDesc" rows="2"></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label>Primary Color (for fallback)</label>
-                            <input type="color" id="assetColor" value="#ffffff">
-                        </div>
+                    <div class="form-group">
+                        <label>Mana</label>
+                        <input type="number" id="statMana" value="30" min="0">
                     </div>
                 </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Attack</label>
+                        <input type="number" id="statAttack" value="5" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Defense</label>
+                        <input type="number" id="statDefense" value="1" min="0">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Crit %</label>
+                        <input type="number" id="statCrit" value="5" min="0" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label>Dodge %</label>
+                        <input type="number" id="statDodge" value="5" min="0" max="100">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>AI Behavior</label>
+                    <select id="behaviorPattern">
+                        <option value="balanced">Balanced</option>
+                        <option value="aggressive">Aggressive</option>
+                        <option value="defensive">Defensive</option>
+                        <option value="fleeing">Fleeing</option>
+                    </select>
+                </div>
+            </div>
 
-                <div class="btn-group" style="margin-top: 20px;">
-                    <button class="btn btn-success" id="saveBtn">Save Sprite</button>
-                    <button class="btn btn-primary" id="exportBtn">Export .sprite</button>
-                    <button class="btn btn-danger" id="deleteBtn">Delete</button>
+            <!-- Assets Tab -->
+            <div class="tab-content" id="tab-assets">
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="assetCategory">
+                        <option value="all">All</option>
+                        <option value="item">Items</option>
+                        <option value="object">Objects</option>
+                        <option value="trap">Traps</option>
+                    </select>
+                </div>
+
+                <div class="list-container" id="assetList"></div>
+
+                <div class="action-row">
+                    <button class="btn btn-primary" id="loadAssetBtn">Load</button>
+                    <button class="btn btn-success" id="saveAssetBtn">Save Asset</button>
+                    <button class="btn btn-secondary" id="resetAssetBtn">Reset</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Modal for move editing -->
-    <div class="modal" id="moveModal">
-        <div class="modal-content">
-            <h3>Edit Move</h3>
-            <!-- Content populated by JS -->
-        </div>
+    <div class="shortcuts-hint">
+        <kbd>D</kbd> Draw <kbd>E</kbd> Erase <kbd>F</kbd> Fill <kbd>I</kbd> Pick
+        <kbd>Ctrl+Z</kbd> Undo <kbd>Ctrl+Y</kbd> Redo <kbd>Ctrl+S</kbd> Save
     </div>
 
     <script type="module" src="./src/editor.ts"></script>

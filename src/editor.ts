@@ -1,85 +1,294 @@
 /**
- * Deluge-2 Sprite Editor
- * Create and edit .sprite files for custom player classes and enemies
+ * Deluge-2 Pixel Art Editor
+ * Full-featured pixel art editor with alpha support, undo/redo, and multiple tools
  */
 
 import { SpriteManager, type SpriteData, DEFAULT_PLAYER_SPRITE } from './Sprite';
 import { AssetManager, BUILTIN_ASSETS, type GameAsset } from './GameAssets';
 
-// Default color palette
+// ============================================
+// Types & Constants
+// ============================================
+
+type Tool = 'draw' | 'erase' | 'fill' | 'pick' | 'line' | 'rect';
+
+interface HistoryState {
+    pixels: string[][];
+    gridSize: number;
+}
+
 const DEFAULT_PALETTE = [
     '', // Transparent
-    '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff',
-    '#00ffff', '#ff8800', '#8800ff', '#00ff88', '#ff0088', '#88ff00', '#0088ff',
-    '#884400', '#444444', '#888888', '#cccccc', '#4af', '#f44', '#4f4', '#ff0'
+    '#000000', '#1a1a1a', '#333333', '#4d4d4d', '#666666', '#808080', '#999999',
+    '#b3b3b3', '#cccccc', '#e6e6e6', '#ffffff', '#ff0000', '#ff4400', '#ff8800',
+    '#ffcc00', '#ffff00', '#ccff00', '#88ff00', '#44ff00', '#00ff00', '#00ff44',
+    '#00ff88', '#00ffcc', '#00ffff', '#00ccff', '#0088ff', '#0044ff', '#0000ff',
+    '#4400ff', '#8800ff', '#cc00ff', '#ff00ff', '#ff00cc', '#ff0088', '#ff0044',
+    '#8b4513', '#a0522d', '#cd853f', '#deb887', '#f4a460', '#d2691e', '#b8860b',
+    '#ffd700', '#f0e68c', '#bdb76b', '#556b2f', '#228b22', '#006400', '#2e8b57'
 ];
 
-// Editor state
-let currentTool: 'draw' | 'erase' | 'fill' | 'pick' = 'draw';
-let currentColor = '#4af';
-let pixelData: string[][] = Array(8).fill(null).map(() => Array(8).fill(''));
+// ============================================
+// Editor State
+// ============================================
+
+let gridSize = 8;
+let pixelSize = 32; // Size of each pixel on canvas
+let currentTool: Tool = 'draw';
+let currentColor = '#44aaff';
+let currentAlpha = 100;
+let pixelData: string[][] = createEmptyGrid(gridSize);
 let sprites: SpriteData[] = [];
 let currentSpriteIndex = -1;
-let moveset: SpriteData['moveset'] = [];
-let selectedMoveIndex = -1;
-
-// Asset editor state
 let assets: GameAsset[] = [];
 let selectedAssetId: string | null = null;
-let currentAssetCategory: string = 'all';
+
+// History for undo/redo
+let history: HistoryState[] = [];
+let historyIndex = -1;
+const MAX_HISTORY = 50;
 
 // Canvas references
 let canvas: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
 let preview1x: HTMLCanvasElement;
+let preview2x: HTMLCanvasElement;
 let preview4x: HTMLCanvasElement;
-let previewGame: HTMLCanvasElement;
 
-const PIXEL_SIZE = 32; // Size of each pixel in the editor canvas
+// Drawing state
+let isDrawing = false;
+let lineStartX = -1;
+let lineStartY = -1;
 
-// Initialize editor
-function init() {
-    canvas = document.getElementById('spriteCanvas') as HTMLCanvasElement;
-    ctx = canvas.getContext('2d')!;
-    preview1x = document.getElementById('previewCanvas1x') as HTMLCanvasElement;
-    preview4x = document.getElementById('previewCanvas4x') as HTMLCanvasElement;
-    previewGame = document.getElementById('previewCanvasGame') as HTMLCanvasElement;
+// ============================================
+// Utility Functions
+// ============================================
 
-    // Initialize asset manager
-    AssetManager.init();
+function createEmptyGrid(size: number): string[][] {
+    return Array(size).fill(null).map(() => Array(size).fill(''));
+}
 
-    // Load saved sprites
-    loadSprites();
+function cloneGrid(grid: string[][]): string[][] {
+    return grid.map(row => [...row]);
+}
 
-    // Load assets
-    loadAssets();
+function hexToRgba(hex: string, alpha: number = 100): string {
+    if (!hex || hex === '') return '';
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha / 100})`;
+}
 
-    // Setup color palette
-    setupColorPalette();
+function rgbaToHex(rgba: string): { hex: string; alpha: number } {
+    if (!rgba || rgba === '') return { hex: '', alpha: 100 };
+    const match = rgba.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (match) {
+        const r = parseInt(match[1]).toString(16).padStart(2, '0');
+        const g = parseInt(match[2]).toString(16).padStart(2, '0');
+        const b = parseInt(match[3]).toString(16).padStart(2, '0');
+        const a = match[4] ? Math.round(parseFloat(match[4]) * 100) : 100;
+        return { hex: `#${r}${g}${b}`, alpha: a };
+    }
+    if (rgba.startsWith('#')) {
+        return { hex: rgba, alpha: 100 };
+    }
+    return { hex: '', alpha: 100 };
+}
 
-    // Setup event listeners
-    setupCanvasEvents();
-    setupUIEvents();
-    setupDropZone();
-    setupTabs();
-    setupAssetEvents();
+// ============================================
+// History Management
+// ============================================
 
-    // Initial render
-    renderCanvas();
-    renderSpriteList();
-    renderMovesetList();
-    renderAssetList();
+function saveToHistory() {
+    // Remove any redo states
+    history = history.slice(0, historyIndex + 1);
 
-    // Create a new sprite by default if none exist
-    if (sprites.length === 0) {
-        createNewSprite();
+    // Add current state
+    history.push({
+        pixels: cloneGrid(pixelData),
+        gridSize: gridSize
+    });
+
+    // Limit history size
+    if (history.length > MAX_HISTORY) {
+        history.shift();
     } else {
-        selectSprite(0);
+        historyIndex++;
+    }
+
+    updateHistoryInfo();
+}
+
+function undo() {
+    if (historyIndex > 0) {
+        historyIndex--;
+        const state = history[historyIndex];
+        gridSize = state.gridSize;
+        pixelData = cloneGrid(state.pixels);
+        updateCanvasSize();
+        renderCanvas();
+        updatePreviews();
+        updateHistoryInfo();
     }
 }
 
-function loadSprites() {
-    sprites = SpriteManager.getAllSprites();
+function redo() {
+    if (historyIndex < history.length - 1) {
+        historyIndex++;
+        const state = history[historyIndex];
+        gridSize = state.gridSize;
+        pixelData = cloneGrid(state.pixels);
+        updateCanvasSize();
+        renderCanvas();
+        updatePreviews();
+        updateHistoryInfo();
+    }
+}
+
+function updateHistoryInfo() {
+    const info = document.getElementById('historyInfo');
+    if (info) {
+        info.textContent = `History: ${historyIndex + 1}/${history.length}`;
+    }
+}
+
+// ============================================
+// Canvas Rendering
+// ============================================
+
+function updateCanvasSize() {
+    const canvasSize = gridSize * pixelSize;
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+
+    // Update preview canvas sizes
+    preview1x.width = gridSize;
+    preview1x.height = gridSize;
+    preview2x.width = gridSize * 2;
+    preview2x.height = gridSize * 2;
+    preview4x.width = gridSize * 4;
+    preview4x.height = gridSize * 4;
+}
+
+function renderCanvas() {
+    const canvasSize = gridSize * pixelSize;
+
+    // Clear canvas
+    ctx.fillStyle = '#1a1a25';
+    ctx.fillRect(0, 0, canvasSize, canvasSize);
+
+    // Draw pixels
+    for (let y = 0; y < gridSize; y++) {
+        for (let x = 0; x < gridSize; x++) {
+            const px = x * pixelSize;
+            const py = y * pixelSize;
+
+            // Draw checkerboard for transparent pixels
+            if (!pixelData[y][x] || pixelData[y][x] === '') {
+                ctx.fillStyle = (x + y) % 2 === 0 ? '#222' : '#2a2a35';
+                ctx.fillRect(px, py, pixelSize, pixelSize);
+            } else {
+                // Draw transparent background first for alpha
+                ctx.fillStyle = (x + y) % 2 === 0 ? '#222' : '#2a2a35';
+                ctx.fillRect(px, py, pixelSize, pixelSize);
+                // Then draw the pixel color
+                ctx.fillStyle = pixelData[y][x];
+                ctx.fillRect(px, py, pixelSize, pixelSize);
+            }
+        }
+    }
+
+    // Draw grid lines
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+
+    for (let i = 0; i <= gridSize; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * pixelSize, 0);
+        ctx.lineTo(i * pixelSize, canvasSize);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(0, i * pixelSize);
+        ctx.lineTo(canvasSize, i * pixelSize);
+        ctx.stroke();
+    }
+}
+
+function updatePreviews() {
+    // 1x preview
+    const ctx1 = preview1x.getContext('2d')!;
+    ctx1.clearRect(0, 0, gridSize, gridSize);
+    for (let y = 0; y < gridSize; y++) {
+        for (let x = 0; x < gridSize; x++) {
+            if (pixelData[y]?.[x]) {
+                ctx1.fillStyle = pixelData[y][x];
+                ctx1.fillRect(x, y, 1, 1);
+            }
+        }
+    }
+
+    // 2x preview
+    const ctx2 = preview2x.getContext('2d')!;
+    ctx2.imageSmoothingEnabled = false;
+    ctx2.clearRect(0, 0, gridSize * 2, gridSize * 2);
+    ctx2.drawImage(preview1x, 0, 0, gridSize * 2, gridSize * 2);
+
+    // 4x preview
+    const ctx4 = preview4x.getContext('2d')!;
+    ctx4.imageSmoothingEnabled = false;
+    ctx4.clearRect(0, 0, gridSize * 4, gridSize * 4);
+    ctx4.drawImage(preview1x, 0, 0, gridSize * 4, gridSize * 4);
+}
+
+// ============================================
+// Color Management
+// ============================================
+
+function updateColorPreview() {
+    const preview = document.getElementById('colorPreview') as HTMLElement;
+    if (currentColor === '' || currentAlpha === 0) {
+        preview.className = 'color-preview-large transparent';
+        preview.style.backgroundColor = '';
+    } else {
+        preview.className = 'color-preview-large';
+        preview.style.backgroundColor = hexToRgba(currentColor, currentAlpha);
+    }
+}
+
+function selectColor(color: string, alpha: number = 100) {
+    if (color === '') {
+        currentColor = '';
+        currentAlpha = 0;
+    } else {
+        const parsed = rgbaToHex(color);
+        currentColor = parsed.hex || color;
+        currentAlpha = parsed.alpha !== 100 ? parsed.alpha : alpha;
+    }
+
+    // Update UI
+    (document.getElementById('colorHex') as HTMLInputElement).value = currentColor;
+    (document.getElementById('colorPicker') as HTMLInputElement).value = currentColor || '#000000';
+    (document.getElementById('alphaSlider') as HTMLInputElement).value = String(currentAlpha);
+    (document.getElementById('alphaValue') as HTMLInputElement).value = String(currentAlpha);
+
+    updateColorPreview();
+    updatePaletteSelection();
+}
+
+function getCurrentColorValue(): string {
+    if (currentColor === '' || currentAlpha === 0) return '';
+    if (currentAlpha === 100) return currentColor;
+    return hexToRgba(currentColor, currentAlpha);
+}
+
+function updatePaletteSelection() {
+    document.querySelectorAll('.color-swatch').forEach((swatch, i) => {
+        const isSelected = (i === 0 && currentColor === '') ||
+            (DEFAULT_PALETTE[i] === currentColor && currentAlpha === 100);
+        swatch.classList.toggle('selected', isSelected);
+    });
 }
 
 function setupColorPalette() {
@@ -88,195 +297,254 @@ function setupColorPalette() {
 
     DEFAULT_PALETTE.forEach((color) => {
         const swatch = document.createElement('div');
-        swatch.className = 'color-swatch' + (color === '' ? ' transparent' : '') + (color === currentColor ? ' selected' : '');
+        swatch.className = 'color-swatch' + (color === '' ? ' transparent' : '');
         if (color) {
             swatch.style.backgroundColor = color;
         }
-        swatch.onclick = () => selectColor(color);
+        swatch.onclick = () => selectColor(color, 100);
         palette.appendChild(swatch);
     });
+
+    updatePaletteSelection();
 }
 
-function selectColor(color: string) {
-    currentColor = color;
-    (document.getElementById('customColor') as HTMLInputElement).value = color || '#000000';
+// ============================================
+// Drawing Tools
+// ============================================
 
-    // Update selection UI
-    document.querySelectorAll('.color-swatch').forEach((swatch, i) => {
-        swatch.classList.toggle('selected', DEFAULT_PALETTE[i] === color);
-    });
+function getPixelCoords(e: MouseEvent): { x: number; y: number } {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = Math.floor((e.clientX - rect.left) * scaleX / pixelSize);
+    const y = Math.floor((e.clientY - rect.top) * scaleY / pixelSize);
+    return {
+        x: Math.min(gridSize - 1, Math.max(0, x)),
+        y: Math.min(gridSize - 1, Math.max(0, y))
+    };
 }
+
+function setPixel(x: number, y: number, color: string) {
+    if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
+        pixelData[y][x] = color;
+    }
+}
+
+function drawLine(x0: number, y0: number, x1: number, y1: number, color: string) {
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+
+    while (true) {
+        setPixel(x0, y0, color);
+        if (x0 === x1 && y0 === y1) break;
+        const e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x0 += sx; }
+        if (e2 < dx) { err += dx; y0 += sy; }
+    }
+}
+
+function drawRect(x0: number, y0: number, x1: number, y1: number, color: string) {
+    const minX = Math.min(x0, x1);
+    const maxX = Math.max(x0, x1);
+    const minY = Math.min(y0, y1);
+    const maxY = Math.max(y0, y1);
+
+    for (let x = minX; x <= maxX; x++) {
+        setPixel(x, minY, color);
+        setPixel(x, maxY, color);
+    }
+    for (let y = minY; y <= maxY; y++) {
+        setPixel(minX, y, color);
+        setPixel(maxX, y, color);
+    }
+}
+
+function floodFill(startX: number, startY: number, targetColor: string, fillColor: string) {
+    if (targetColor === fillColor) return;
+
+    const stack: [number, number][] = [[startX, startY]];
+    const visited = new Set<string>();
+
+    while (stack.length > 0) {
+        const [x, y] = stack.pop()!;
+        const key = `${x},${y}`;
+
+        if (visited.has(key)) continue;
+        if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) continue;
+        if (pixelData[y][x] !== targetColor) continue;
+
+        visited.add(key);
+        pixelData[y][x] = fillColor;
+
+        stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+}
+
+function handleDraw(e: MouseEvent) {
+    const { x, y } = getPixelCoords(e);
+    const color = getCurrentColorValue();
+
+    switch (currentTool) {
+        case 'draw':
+            setPixel(x, y, color);
+            break;
+        case 'erase':
+            setPixel(x, y, '');
+            break;
+        case 'fill':
+            floodFill(x, y, pixelData[y][x], color);
+            break;
+        case 'pick':
+            if (pixelData[y][x]) {
+                selectColor(pixelData[y][x]);
+            } else {
+                selectColor('', 0);
+            }
+            return; // Don't save to history for pick
+        case 'line':
+        case 'rect':
+            return; // Handled separately
+    }
+
+    renderCanvas();
+    updatePreviews();
+}
+
+// ============================================
+// Canvas Events
+// ============================================
 
 function setupCanvasEvents() {
-    let isDrawing = false;
-
-    const getPixelCoords = (e: MouseEvent) => {
-        const rect = canvas.getBoundingClientRect();
-        const x = Math.floor((e.clientX - rect.left) / PIXEL_SIZE);
-        const y = Math.floor((e.clientY - rect.top) / PIXEL_SIZE);
-        return { x: Math.min(7, Math.max(0, x)), y: Math.min(7, Math.max(0, y)) };
-    };
-
-    const handleDraw = (e: MouseEvent) => {
-        const { x, y } = getPixelCoords(e);
-
-        switch (currentTool) {
-            case 'draw':
-                pixelData[y][x] = currentColor;
-                break;
-            case 'erase':
-                pixelData[y][x] = '';
-                break;
-            case 'fill':
-                floodFill(x, y, pixelData[y][x], currentColor);
-                break;
-            case 'pick':
-                if (pixelData[y][x]) {
-                    selectColor(pixelData[y][x]);
-                }
-                break;
-        }
-
-        renderCanvas();
-        updatePreviews();
-    };
-
     canvas.addEventListener('mousedown', (e) => {
         isDrawing = true;
-        handleDraw(e);
-    });
+        const { x, y } = getPixelCoords(e);
 
-    canvas.addEventListener('mousemove', (e) => {
-        if (isDrawing && currentTool !== 'fill' && currentTool !== 'pick') {
+        if (currentTool === 'line' || currentTool === 'rect') {
+            lineStartX = x;
+            lineStartY = y;
+            saveToHistory();
+        } else {
+            saveToHistory();
             handleDraw(e);
         }
     });
 
-    canvas.addEventListener('mouseup', () => isDrawing = false);
-    canvas.addEventListener('mouseleave', () => isDrawing = false);
-}
+    canvas.addEventListener('mousemove', (e) => {
+        const { x, y } = getPixelCoords(e);
 
-function floodFill(x: number, y: number, targetColor: string, fillColor: string) {
-    if (targetColor === fillColor) return;
-    if (x < 0 || x > 7 || y < 0 || y > 7) return;
-    if (pixelData[y][x] !== targetColor) return;
+        // Update coordinates display
+        const coords = document.getElementById('canvasCoords');
+        if (coords) coords.textContent = `${x}, ${y}`;
 
-    pixelData[y][x] = fillColor;
+        if (!isDrawing) return;
 
-    floodFill(x + 1, y, targetColor, fillColor);
-    floodFill(x - 1, y, targetColor, fillColor);
-    floodFill(x, y + 1, targetColor, fillColor);
-    floodFill(x, y - 1, targetColor, fillColor);
-}
+        if (currentTool === 'line' || currentTool === 'rect') {
+            // Preview line/rect
+            const state = history[historyIndex];
+            pixelData = cloneGrid(state.pixels);
 
-function renderCanvas() {
-    ctx.fillStyle = '#1a1a25';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw grid
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 1;
-
-    for (let i = 0; i <= 8; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * PIXEL_SIZE, 0);
-        ctx.lineTo(i * PIXEL_SIZE, 256);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(0, i * PIXEL_SIZE);
-        ctx.lineTo(256, i * PIXEL_SIZE);
-        ctx.stroke();
-    }
-
-    // Draw pixels
-    for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-            if (pixelData[y][x]) {
-                ctx.fillStyle = pixelData[y][x];
-                ctx.fillRect(x * PIXEL_SIZE + 1, y * PIXEL_SIZE + 1, PIXEL_SIZE - 2, PIXEL_SIZE - 2);
+            const color = getCurrentColorValue();
+            if (currentTool === 'line') {
+                drawLine(lineStartX, lineStartY, x, y, color);
             } else {
-                // Transparent checkerboard
-                ctx.fillStyle = '#222';
-                ctx.fillRect(x * PIXEL_SIZE + 1, y * PIXEL_SIZE + 1, PIXEL_SIZE - 2, PIXEL_SIZE - 2);
-                ctx.fillStyle = '#2a2a35';
-                if ((x + y) % 2 === 0) {
-                    ctx.fillRect(x * PIXEL_SIZE + 1, y * PIXEL_SIZE + 1, (PIXEL_SIZE - 2) / 2, (PIXEL_SIZE - 2) / 2);
-                    ctx.fillRect(x * PIXEL_SIZE + 1 + (PIXEL_SIZE - 2) / 2, y * PIXEL_SIZE + 1 + (PIXEL_SIZE - 2) / 2, (PIXEL_SIZE - 2) / 2, (PIXEL_SIZE - 2) / 2);
-                }
+                drawRect(lineStartX, lineStartY, x, y, color);
             }
+            renderCanvas();
+            updatePreviews();
+        } else if (currentTool !== 'fill' && currentTool !== 'pick') {
+            handleDraw(e);
         }
-    }
+    });
+
+    canvas.addEventListener('mouseup', () => {
+        isDrawing = false;
+        lineStartX = -1;
+        lineStartY = -1;
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        isDrawing = false;
+    });
 }
 
-function updatePreviews() {
-    // 1x preview
-    const ctx1 = preview1x.getContext('2d')!;
-    ctx1.fillStyle = '#000';
-    ctx1.fillRect(0, 0, 8, 8);
-    for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-            if (pixelData[y][x]) {
-                ctx1.fillStyle = pixelData[y][x];
-                ctx1.fillRect(x, y, 1, 1);
-            }
-        }
-    }
-
-    // 4x preview
-    const ctx4 = preview4x.getContext('2d')!;
-    ctx4.imageSmoothingEnabled = false;
-    ctx4.fillStyle = '#000';
-    ctx4.fillRect(0, 0, 32, 32);
-    ctx4.drawImage(preview1x, 0, 0, 32, 32);
-
-    // Game size preview (with slight glow effect)
-    const ctxGame = previewGame.getContext('2d')!;
-    ctxGame.imageSmoothingEnabled = false;
-    ctxGame.fillStyle = '#1a1a25';
-    ctxGame.fillRect(0, 0, 32, 32);
-    ctxGame.drawImage(preview1x, 0, 0, 32, 32);
-}
+// ============================================
+// UI Events
+// ============================================
 
 function setupUIEvents() {
     // Tool buttons
-    document.querySelectorAll('.tool-btn').forEach(btn => {
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
         btn.addEventListener('click', () => {
-            currentTool = (btn as HTMLElement).dataset.tool as any;
-            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            currentTool = (btn as HTMLElement).dataset.tool as Tool;
+            document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
         });
     });
 
-    // Custom color picker
-    document.getElementById('customColor')!.addEventListener('input', (e) => {
-        currentColor = (e.target as HTMLInputElement).value;
-        document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
-    });
-
-    // Clear button
-    document.getElementById('clearBtn')!.addEventListener('click', () => {
-        pixelData = Array(8).fill(null).map(() => Array(8).fill(''));
-        renderCanvas();
-        updatePreviews();
-    });
-
-    // Mirror button
-    document.getElementById('mirrorBtn')!.addEventListener('click', () => {
-        for (let y = 0; y < 8; y++) {
-            const row = [...pixelData[y]];
-            pixelData[y] = row.reverse();
+    // Color inputs
+    document.getElementById('colorHex')!.addEventListener('input', (e) => {
+        const value = (e.target as HTMLInputElement).value;
+        if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+            currentColor = value;
+            (document.getElementById('colorPicker') as HTMLInputElement).value = value;
+            updateColorPreview();
+            updatePaletteSelection();
         }
+    });
+
+    document.getElementById('colorPicker')!.addEventListener('input', (e) => {
+        currentColor = (e.target as HTMLInputElement).value;
+        (document.getElementById('colorHex') as HTMLInputElement).value = currentColor;
+        updateColorPreview();
+        updatePaletteSelection();
+    });
+
+    document.getElementById('alphaSlider')!.addEventListener('input', (e) => {
+        currentAlpha = parseInt((e.target as HTMLInputElement).value);
+        (document.getElementById('alphaValue') as HTMLInputElement).value = String(currentAlpha);
+        updateColorPreview();
+    });
+
+    document.getElementById('alphaValue')!.addEventListener('input', (e) => {
+        currentAlpha = Math.max(0, Math.min(100, parseInt((e.target as HTMLInputElement).value) || 0));
+        (document.getElementById('alphaSlider') as HTMLInputElement).value = String(currentAlpha);
+        updateColorPreview();
+    });
+
+    // Canvas action buttons
+    document.getElementById('undoBtn')!.addEventListener('click', undo);
+    document.getElementById('redoBtn')!.addEventListener('click', redo);
+
+    document.getElementById('clearBtn')!.addEventListener('click', () => {
+        saveToHistory();
+        pixelData = createEmptyGrid(gridSize);
         renderCanvas();
         updatePreviews();
     });
 
-    // Rotate button
+    document.getElementById('mirrorHBtn')!.addEventListener('click', () => {
+        saveToHistory();
+        pixelData = pixelData.map(row => [...row].reverse());
+        renderCanvas();
+        updatePreviews();
+    });
+
+    document.getElementById('mirrorVBtn')!.addEventListener('click', () => {
+        saveToHistory();
+        pixelData = [...pixelData].reverse();
+        renderCanvas();
+        updatePreviews();
+    });
+
     document.getElementById('rotateBtn')!.addEventListener('click', () => {
-        const newData = Array(8).fill(null).map(() => Array(8).fill(''));
-        for (let y = 0; y < 8; y++) {
-            for (let x = 0; x < 8; x++) {
-                newData[x][7 - y] = pixelData[y][x];
+        saveToHistory();
+        const newData = createEmptyGrid(gridSize);
+        for (let y = 0; y < gridSize; y++) {
+            for (let x = 0; x < gridSize; x++) {
+                newData[x][gridSize - 1 - y] = pixelData[y][x];
             }
         }
         pixelData = newData;
@@ -284,41 +552,121 @@ function setupUIEvents() {
         updatePreviews();
     });
 
-    // New sprite button
+    // Zoom controls
+    document.getElementById('zoomInBtn')!.addEventListener('click', () => {
+        if (pixelSize < 64) {
+            pixelSize += 8;
+            updateCanvasSize();
+            renderCanvas();
+            document.getElementById('zoomLevel')!.textContent = `${Math.round(pixelSize / 32 * 100)}%`;
+        }
+    });
+
+    document.getElementById('zoomOutBtn')!.addEventListener('click', () => {
+        if (pixelSize > 8) {
+            pixelSize -= 8;
+            updateCanvasSize();
+            renderCanvas();
+            document.getElementById('zoomLevel')!.textContent = `${Math.round(pixelSize / 32 * 100)}%`;
+        }
+    });
+
+    // Grid size buttons
+    document.querySelectorAll('.grid-size-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const newSize = parseInt((btn as HTMLElement).dataset.size!);
+            if (newSize !== gridSize) {
+                // Resize pixel data
+                const newData = createEmptyGrid(newSize);
+                const minSize = Math.min(gridSize, newSize);
+                for (let y = 0; y < minSize; y++) {
+                    for (let x = 0; x < minSize; x++) {
+                        newData[y][x] = pixelData[y]?.[x] || '';
+                    }
+                }
+                gridSize = newSize;
+                pixelData = newData;
+
+                saveToHistory();
+                updateCanvasSize();
+                renderCanvas();
+                updatePreviews();
+
+                document.querySelectorAll('.grid-size-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            }
+        });
+    });
+
+    // Sprite management
     document.getElementById('newSpriteBtn')!.addEventListener('click', createNewSprite);
-
-    // Save sprite button
+    document.getElementById('duplicateBtn')!.addEventListener('click', duplicateSprite);
     document.getElementById('saveBtn')!.addEventListener('click', saveCurrentSprite);
-
-    // Export button
     document.getElementById('exportBtn')!.addEventListener('click', exportCurrentSprite);
-
-    // Delete button
     document.getElementById('deleteBtn')!.addEventListener('click', deleteCurrentSprite);
 
-    // Add move button
-    document.getElementById('addMoveBtn')!.addEventListener('click', addNewMove);
-
-    // Remove move button
-    document.getElementById('removeMoveBtn')!.addEventListener('click', removeSelectedMove);
-
-    // Save move button
-    document.getElementById('saveMoveBtn')!.addEventListener('click', saveCurrentMove);
-}
-
-function setupTabs() {
+    // Tabs
     document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', () => {
             const tabName = (tab as HTMLElement).dataset.tab!;
-
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-
             tab.classList.add('active');
             document.getElementById(`tab-${tabName}`)!.classList.add('active');
         });
     });
+
+    // Asset management
+    document.getElementById('assetCategory')!.addEventListener('change', renderAssetList);
+    document.getElementById('loadAssetBtn')!.addEventListener('click', loadAssetToCanvas);
+    document.getElementById('saveAssetBtn')!.addEventListener('click', saveCurrentAsset);
+    document.getElementById('resetAssetBtn')!.addEventListener('click', resetSelectedAsset);
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        // Don't trigger if typing in input
+        if ((e.target as HTMLElement).tagName === 'INPUT' ||
+            (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+
+        if (e.ctrlKey || e.metaKey) {
+            switch (e.key.toLowerCase()) {
+                case 'z':
+                    e.preventDefault();
+                    if (e.shiftKey) redo();
+                    else undo();
+                    break;
+                case 'y':
+                    e.preventDefault();
+                    redo();
+                    break;
+                case 's':
+                    e.preventDefault();
+                    saveCurrentSprite();
+                    break;
+            }
+        } else {
+            switch (e.key.toLowerCase()) {
+                case 'd': selectTool('draw'); break;
+                case 'e': selectTool('erase'); break;
+                case 'f': selectTool('fill'); break;
+                case 'i': selectTool('pick'); break;
+                case 'l': selectTool('line'); break;
+                case 'r': selectTool('rect'); break;
+            }
+        }
+    });
 }
+
+function selectTool(tool: Tool) {
+    currentTool = tool;
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
+        btn.classList.toggle('active', (btn as HTMLElement).dataset.tool === tool);
+    });
+}
+
+// ============================================
+// Drop Zone
+// ============================================
 
 function setupDropZone() {
     const dropZone = document.getElementById('dropZone')!;
@@ -338,10 +686,8 @@ function setupDropZone() {
     dropZone.addEventListener('drop', (e) => {
         e.preventDefault();
         dropZone.classList.remove('dragover');
-
-        const files = e.dataTransfer?.files;
-        if (files) {
-            handleFiles(files);
+        if (e.dataTransfer?.files) {
+            handleFiles(e.dataTransfer.files);
         }
     });
 
@@ -359,7 +705,6 @@ async function handleFiles(files: FileList) {
             try {
                 const sprite = SpriteManager.importSprite(text);
                 if (sprite) {
-                    // Check if sprite with this ID already exists
                     const existingIndex = sprites.findIndex(s => s.id === sprite.id);
                     if (existingIndex >= 0) {
                         sprites[existingIndex] = sprite;
@@ -369,12 +714,21 @@ async function handleFiles(files: FileList) {
                     SpriteManager.saveSprite(sprite);
                     renderSpriteList();
                     selectSprite(sprites.length - 1);
+                    showNotification('Sprite imported!');
                 }
             } catch (err) {
-                alert(`Failed to import ${file.name}: ${err}`);
+                showNotification(`Failed to import: ${err}`);
             }
         }
     }
+}
+
+// ============================================
+// Sprite Management
+// ============================================
+
+function loadSprites() {
+    sprites = SpriteManager.getAllSprites();
 }
 
 function createNewSprite() {
@@ -382,6 +736,7 @@ function createNewSprite() {
         ...DEFAULT_PLAYER_SPRITE,
         id: `sprite_${Date.now()}`,
         name: 'New Sprite',
+        pixels: createEmptyGrid(8),
         metadata: {
             ...DEFAULT_PLAYER_SPRITE.metadata,
             created: new Date().toISOString(),
@@ -393,6 +748,30 @@ function createNewSprite() {
     SpriteManager.saveSprite(newSprite);
     renderSpriteList();
     selectSprite(sprites.length - 1);
+    showNotification('New sprite created!');
+}
+
+function duplicateSprite() {
+    if (currentSpriteIndex < 0) return;
+
+    const source = sprites[currentSpriteIndex];
+    const newSprite: SpriteData = {
+        ...source,
+        id: `sprite_${Date.now()}`,
+        name: `${source.name} Copy`,
+        pixels: cloneGrid(source.pixels),
+        metadata: {
+            ...source.metadata,
+            created: new Date().toISOString(),
+            modified: new Date().toISOString()
+        }
+    };
+
+    sprites.push(newSprite);
+    SpriteManager.saveSprite(newSprite);
+    renderSpriteList();
+    selectSprite(sprites.length - 1);
+    showNotification('Sprite duplicated!');
 }
 
 function selectSprite(index: number) {
@@ -401,43 +780,42 @@ function selectSprite(index: number) {
     currentSpriteIndex = index;
     const sprite = sprites[index];
 
-    // Load pixel data
-    pixelData = sprite.pixels.map(row => [...row]);
+    // Determine grid size from sprite
+    const spriteSize = sprite.pixels?.length || 8;
+    if (spriteSize !== gridSize) {
+        gridSize = spriteSize;
+        updateCanvasSize();
+        document.querySelectorAll('.grid-size-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt((btn as HTMLElement).dataset.size!) === gridSize);
+        });
+    }
 
-    // Load metadata
-    (document.getElementById('spriteId') as HTMLInputElement).value = sprite.id;
+    // Load pixel data
+    pixelData = sprite.pixels ? cloneGrid(sprite.pixels) : createEmptyGrid(gridSize);
+
+    // Reset history
+    history = [{ pixels: cloneGrid(pixelData), gridSize }];
+    historyIndex = 0;
+
+    // Load form data
     (document.getElementById('spriteName') as HTMLInputElement).value = sprite.name;
     (document.getElementById('spriteType') as HTMLSelectElement).value = sprite.type;
-    (document.getElementById('spriteDesc') as HTMLTextAreaElement).value = sprite.metadata.description || '';
-    (document.getElementById('spriteChar') as HTMLInputElement).value = sprite.char;
-    (document.getElementById('spriteColor') as HTMLInputElement).value = sprite.color;
-    (document.getElementById('spriteAuthor') as HTMLInputElement).value = sprite.metadata.author || '';
+    (document.getElementById('spriteDesc') as HTMLTextAreaElement).value = sprite.metadata?.description || '';
+    (document.getElementById('spriteChar') as HTMLInputElement).value = sprite.char || '@';
 
     // Load stats
-    (document.getElementById('statHp') as HTMLInputElement).value = String(sprite.stats.baseHp);
-    (document.getElementById('statMana') as HTMLInputElement).value = String(sprite.stats.baseMana);
-    (document.getElementById('statAttack') as HTMLInputElement).value = String(sprite.stats.baseAttack);
-    (document.getElementById('statDefense') as HTMLInputElement).value = String(sprite.stats.baseDefense);
-    (document.getElementById('statCrit') as HTMLInputElement).value = String(sprite.stats.critChance);
-    (document.getElementById('statDodge') as HTMLInputElement).value = String(sprite.stats.dodgeChance);
-    (document.getElementById('statSpeed') as HTMLInputElement).value = String(sprite.stats.speed);
-
-    // Load behavior
+    (document.getElementById('statHp') as HTMLInputElement).value = String(sprite.stats?.baseHp || 50);
+    (document.getElementById('statMana') as HTMLInputElement).value = String(sprite.stats?.baseMana || 30);
+    (document.getElementById('statAttack') as HTMLInputElement).value = String(sprite.stats?.baseAttack || 5);
+    (document.getElementById('statDefense') as HTMLInputElement).value = String(sprite.stats?.baseDefense || 1);
+    (document.getElementById('statCrit') as HTMLInputElement).value = String(sprite.stats?.critChance || 5);
+    (document.getElementById('statDodge') as HTMLInputElement).value = String(sprite.stats?.dodgeChance || 5);
     (document.getElementById('behaviorPattern') as HTMLSelectElement).value = sprite.behavior?.pattern || 'balanced';
-    (document.getElementById('behaviorAggro') as HTMLInputElement).value = String(sprite.behavior?.aggroRange || 8);
-    (document.getElementById('behaviorMinFloor') as HTMLInputElement).value = String(sprite.behavior?.minFloor || 1);
-    (document.getElementById('isBoss') as HTMLInputElement).checked = sprite.behavior?.isBoss || false;
-    (document.getElementById('isGolden') as HTMLInputElement).checked = sprite.behavior?.isGolden || false;
 
-    // Load moveset
-    moveset = sprite.moveset ? [...sprite.moveset] : [];
-    selectedMoveIndex = -1;
-    renderMovesetList();
-
-    // Update canvas
     renderCanvas();
     updatePreviews();
     renderSpriteList();
+    updateHistoryInfo();
 }
 
 function saveCurrentSprite() {
@@ -446,16 +824,13 @@ function saveCurrentSprite() {
     const sprite = sprites[currentSpriteIndex];
 
     // Save pixel data
-    sprite.pixels = pixelData.map(row => [...row]);
+    sprite.pixels = cloneGrid(pixelData);
 
     // Save metadata
-    sprite.id = (document.getElementById('spriteId') as HTMLInputElement).value || sprite.id;
     sprite.name = (document.getElementById('spriteName') as HTMLInputElement).value || 'Unnamed';
     sprite.type = (document.getElementById('spriteType') as HTMLSelectElement).value as any;
     sprite.metadata.description = (document.getElementById('spriteDesc') as HTMLTextAreaElement).value;
     sprite.char = (document.getElementById('spriteChar') as HTMLInputElement).value || '@';
-    sprite.color = (document.getElementById('spriteColor') as HTMLInputElement).value || '#fff';
-    sprite.metadata.author = (document.getElementById('spriteAuthor') as HTMLInputElement).value;
     sprite.metadata.modified = new Date().toISOString();
 
     // Save stats
@@ -466,37 +841,33 @@ function saveCurrentSprite() {
         baseDefense: parseInt((document.getElementById('statDefense') as HTMLInputElement).value) || 1,
         critChance: parseInt((document.getElementById('statCrit') as HTMLInputElement).value) || 5,
         dodgeChance: parseInt((document.getElementById('statDodge') as HTMLInputElement).value) || 5,
-        speed: parseInt((document.getElementById('statSpeed') as HTMLInputElement).value) || 5
+        speed: 5
     };
 
     // Save behavior
     sprite.behavior = {
         pattern: (document.getElementById('behaviorPattern') as HTMLSelectElement).value as any,
-        aggroRange: parseInt((document.getElementById('behaviorAggro') as HTMLInputElement).value) || 8,
-        minFloor: parseInt((document.getElementById('behaviorMinFloor') as HTMLInputElement).value) || 1,
-        isBoss: (document.getElementById('isBoss') as HTMLInputElement).checked,
-        isGolden: (document.getElementById('isGolden') as HTMLInputElement).checked
+        aggroRange: sprite.behavior?.aggroRange || 5,
+        fleeThreshold: sprite.behavior?.fleeThreshold || 0.2,
+        preferredActions: sprite.behavior?.preferredActions || [],
+        minFloor: sprite.behavior?.minFloor || 1,
+        isBoss: sprite.behavior?.isBoss || false,
+        isGolden: sprite.behavior?.isGolden || false
     };
-
-    // Save moveset
-    sprite.moveset = [...moveset];
 
     SpriteManager.saveSprite(sprite);
     renderSpriteList();
-
-    // Show feedback
     showNotification('Sprite saved!');
 }
 
 function exportCurrentSprite() {
     if (currentSpriteIndex < 0) return;
 
-    saveCurrentSprite(); // Make sure we have latest data
+    saveCurrentSprite();
 
     const sprite = sprites[currentSpriteIndex];
     const json = SpriteManager.exportSprite(sprite);
 
-    // Download as file
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -525,6 +896,7 @@ function deleteCurrentSprite() {
     }
 
     renderSpriteList();
+    showNotification('Sprite deleted');
 }
 
 function renderSpriteList() {
@@ -535,19 +907,20 @@ function renderSpriteList() {
         const item = document.createElement('div');
         item.className = 'sprite-item' + (index === currentSpriteIndex ? ' selected' : '');
 
-        // Create mini preview canvas
+        // Create mini preview
         const miniCanvas = document.createElement('canvas');
+        const size = sprite.pixels?.length || 8;
         miniCanvas.width = 24;
         miniCanvas.height = 24;
         const miniCtx = miniCanvas.getContext('2d')!;
         miniCtx.imageSmoothingEnabled = false;
 
-        // Draw sprite preview
-        for (let y = 0; y < 8; y++) {
-            for (let x = 0; x < 8; x++) {
-                if (sprite.pixels[y] && sprite.pixels[y][x]) {
+        const pixelScale = 24 / size;
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                if (sprite.pixels?.[y]?.[x]) {
                     miniCtx.fillStyle = sprite.pixels[y][x];
-                    miniCtx.fillRect(x * 3, y * 3, 3, 3);
+                    miniCtx.fillRect(x * pixelScale, y * pixelScale, pixelScale, pixelScale);
                 }
             }
         }
@@ -555,7 +928,7 @@ function renderSpriteList() {
         item.innerHTML = `
             <div class="info">
                 <div class="name">${sprite.name}</div>
-                <div class="type">${sprite.type} - ${sprite.id}</div>
+                <div class="type">${sprite.type}</div>
             </div>
         `;
         item.prepend(miniCanvas);
@@ -565,96 +938,145 @@ function renderSpriteList() {
     });
 }
 
-function renderMovesetList() {
-    const list = document.getElementById('movesetList')!;
-    list.innerHTML = '';
+// ============================================
+// Asset Management
+// ============================================
 
-    moveset.forEach((move, index) => {
-        const item = document.createElement('div');
-        item.className = 'moveset-item' + (index === selectedMoveIndex ? ' selected' : '');
-        item.innerHTML = `
-            <div class="name">[${move.key}] ${move.name}</div>
-            <div class="cost">Stamina: ${move.staminaCost} | Mana: ${move.manaCost} | Damage: ${move.baseDamage}x</div>
-        `;
-        item.onclick = () => selectMove(index);
-        list.appendChild(item);
-    });
+function loadAssets() {
+    AssetManager.init();
+    assets = [];
 
-    // Hide/show move editor
-    document.getElementById('moveEditor')!.style.display = selectedMoveIndex >= 0 ? 'block' : 'none';
-}
-
-function selectMove(index: number) {
-    selectedMoveIndex = index;
-    renderMovesetList();
-
-    if (index >= 0 && index < moveset.length) {
-        const move = moveset[index];
-        (document.getElementById('moveName') as HTMLInputElement).value = move.name;
-        (document.getElementById('moveDesc') as HTMLInputElement).value = move.description;
-        (document.getElementById('moveStamina') as HTMLInputElement).value = String(move.staminaCost);
-        (document.getElementById('moveMana') as HTMLInputElement).value = String(move.manaCost);
-        (document.getElementById('moveDamage') as HTMLInputElement).value = String(move.baseDamage);
-        (document.getElementById('moveSpeed') as HTMLInputElement).value = String(move.speed);
-        (document.getElementById('moveKey') as HTMLInputElement).value = move.key;
-        (document.getElementById('moveSpecial') as HTMLSelectElement).value = move.special || '';
+    for (const asset of BUILTIN_ASSETS) {
+        const customAsset = AssetManager.getAsset(asset.id);
+        assets.push(customAsset || asset);
     }
 }
 
-function addNewMove() {
-    const newMove: SpriteData['moveset'][0] = {
-        id: `move_${Date.now()}`,
-        name: 'New Move',
-        description: 'A combat move',
-        staminaCost: 15,
-        manaCost: 0,
-        baseDamage: 1.0,
-        speed: 5,
-        key: String(moveset.length + 1)
+function renderAssetList() {
+    const list = document.getElementById('assetList')!;
+    const category = (document.getElementById('assetCategory') as HTMLSelectElement).value;
+
+    list.innerHTML = '';
+
+    const filtered = category === 'all'
+        ? assets
+        : assets.filter(a => a.category === category);
+
+    filtered.forEach(asset => {
+        const item = document.createElement('div');
+        item.className = 'list-item' + (asset.id === selectedAssetId ? ' selected' : '');
+
+        // Create mini preview
+        const miniCanvas = document.createElement('canvas');
+        miniCanvas.width = 24;
+        miniCanvas.height = 24;
+        const miniCtx = miniCanvas.getContext('2d')!;
+        miniCtx.imageSmoothingEnabled = false;
+
+        for (let y = 0; y < 8; y++) {
+            for (let x = 0; x < 8; x++) {
+                if (asset.pixels?.[y]?.[x]) {
+                    miniCtx.fillStyle = asset.pixels[y][x];
+                    miniCtx.fillRect(x * 3, y * 3, 3, 3);
+                }
+            }
+        }
+
+        item.innerHTML = `
+            <div class="info">
+                <div class="name">${asset.name}</div>
+                <div class="desc">${asset.category}</div>
+            </div>
+        `;
+        item.prepend(miniCanvas);
+        item.onclick = () => {
+            selectedAssetId = asset.id;
+            renderAssetList();
+        };
+
+        list.appendChild(item);
+    });
+}
+
+function loadAssetToCanvas() {
+    if (!selectedAssetId) {
+        showNotification('Select an asset first');
+        return;
+    }
+
+    const asset = assets.find(a => a.id === selectedAssetId);
+    if (!asset) return;
+
+    // Set grid to 8x8 for assets
+    gridSize = 8;
+    updateCanvasSize();
+    document.querySelectorAll('.grid-size-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt((btn as HTMLElement).dataset.size!) === 8);
+    });
+
+    pixelData = asset.pixels ? cloneGrid(asset.pixels) : createEmptyGrid(8);
+    saveToHistory();
+    renderCanvas();
+    updatePreviews();
+
+    showNotification(`Loaded ${asset.name}`);
+}
+
+function saveCurrentAsset() {
+    if (!selectedAssetId) {
+        showNotification('Select an asset first');
+        return;
+    }
+
+    const assetIndex = assets.findIndex(a => a.id === selectedAssetId);
+    if (assetIndex < 0) return;
+
+    const updatedAsset: GameAsset = {
+        ...assets[assetIndex],
+        pixels: cloneGrid(pixelData)
     };
-    moveset.push(newMove);
-    selectMove(moveset.length - 1);
+
+    AssetManager.saveAsset(updatedAsset);
+    assets[assetIndex] = updatedAsset;
+    renderAssetList();
+
+    showNotification(`Saved ${updatedAsset.name}`);
 }
 
-function removeSelectedMove() {
-    if (selectedMoveIndex < 0) return;
-    moveset.splice(selectedMoveIndex, 1);
-    selectedMoveIndex = -1;
-    renderMovesetList();
+function resetSelectedAsset() {
+    if (!selectedAssetId) {
+        showNotification('Select an asset first');
+        return;
+    }
+
+    const builtinAsset = BUILTIN_ASSETS.find(a => a.id === selectedAssetId);
+    if (!builtinAsset) {
+        showNotification('No default found');
+        return;
+    }
+
+    AssetManager.deleteAsset(selectedAssetId);
+    loadAssets();
+    renderAssetList();
+
+    pixelData = cloneGrid(builtinAsset.pixels);
+    saveToHistory();
+    renderCanvas();
+    updatePreviews();
+
+    showNotification(`Reset ${builtinAsset.name}`);
 }
 
-function saveCurrentMove() {
-    if (selectedMoveIndex < 0) return;
-
-    const move = moveset[selectedMoveIndex];
-    move.name = (document.getElementById('moveName') as HTMLInputElement).value || 'Move';
-    move.description = (document.getElementById('moveDesc') as HTMLInputElement).value || '';
-    move.staminaCost = parseInt((document.getElementById('moveStamina') as HTMLInputElement).value) || 0;
-    move.manaCost = parseInt((document.getElementById('moveMana') as HTMLInputElement).value) || 0;
-    move.baseDamage = parseFloat((document.getElementById('moveDamage') as HTMLInputElement).value) || 1.0;
-    move.speed = parseInt((document.getElementById('moveSpeed') as HTMLInputElement).value) || 5;
-    move.key = (document.getElementById('moveKey') as HTMLInputElement).value || '1';
-    move.special = (document.getElementById('moveSpecial') as HTMLSelectElement).value || undefined;
-
-    renderMovesetList();
-    showNotification('Move saved!');
-}
+// ============================================
+// Notifications
+// ============================================
 
 function showNotification(message: string) {
-    // Simple notification
+    const existing = document.querySelector('.notification');
+    if (existing) existing.remove();
+
     const div = document.createElement('div');
-    div.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #4af;
-        color: #000;
-        padding: 10px 20px;
-        border-radius: 4px;
-        font-weight: bold;
-        z-index: 10000;
-        animation: fadeIn 0.2s;
-    `;
+    div.className = 'notification';
     div.textContent = message;
     document.body.appendChild(div);
 
@@ -662,205 +1084,44 @@ function showNotification(message: string) {
         div.style.opacity = '0';
         div.style.transition = 'opacity 0.3s';
         setTimeout(() => div.remove(), 300);
-    }, 1500);
+    }, 2000);
 }
 
 // ============================================
-// Asset Management Functions
+// Initialization
 // ============================================
 
-function loadAssets() {
-    // Load all assets - both built-in and custom
-    assets = [];
+function init() {
+    canvas = document.getElementById('spriteCanvas') as HTMLCanvasElement;
+    ctx = canvas.getContext('2d')!;
+    preview1x = document.getElementById('preview1x') as HTMLCanvasElement;
+    preview2x = document.getElementById('preview2x') as HTMLCanvasElement;
+    preview4x = document.getElementById('preview4x') as HTMLCanvasElement;
 
-    // Add built-in assets
-    for (const asset of BUILTIN_ASSETS) {
-        // Check if there's a custom version
-        const customAsset = AssetManager.getAsset(asset.id);
-        if (customAsset) {
-            assets.push(customAsset);
-        } else {
-            assets.push(asset);
-        }
-    }
-}
-
-function setupAssetEvents() {
-    // Category filter
-    const categorySelect = document.getElementById('assetCategory');
-    if (categorySelect) {
-        categorySelect.addEventListener('change', (e) => {
-            currentAssetCategory = (e.target as HTMLSelectElement).value;
-            renderAssetList();
-        });
-    }
-
-    // Load asset to canvas button
-    const loadBtn = document.getElementById('loadAssetBtn');
-    if (loadBtn) {
-        loadBtn.addEventListener('click', loadAssetToCanvas);
-    }
-
-    // Save asset button
-    const saveBtn = document.getElementById('saveAssetBtn');
-    if (saveBtn) {
-        saveBtn.addEventListener('click', saveCurrentAsset);
-    }
-
-    // Reset asset button
-    const resetBtn = document.getElementById('resetAssetBtn');
-    if (resetBtn) {
-        resetBtn.addEventListener('click', resetSelectedAsset);
-    }
-}
-
-function renderAssetList() {
-    const list = document.getElementById('assetList');
-    if (!list) return;
-
-    list.innerHTML = '';
-
-    // Filter assets by category
-    const filteredAssets = currentAssetCategory === 'all'
-        ? assets
-        : assets.filter(a => a.category === currentAssetCategory);
-
-    filteredAssets.forEach(asset => {
-        const item = document.createElement('div');
-        item.className = 'asset-item' + (asset.id === selectedAssetId ? ' selected' : '');
-
-        // Create a preview canvas for the asset
-        const previewCanvas = document.createElement('canvas');
-        previewCanvas.width = 24;
-        previewCanvas.height = 24;
-        const previewCtx = previewCanvas.getContext('2d')!;
-        previewCtx.imageSmoothingEnabled = false;
-
-        // Draw the asset at 3x scale
-        for (let y = 0; y < 8; y++) {
-            for (let x = 0; x < 8; x++) {
-                const color = asset.pixels[y]?.[x];
-                if (color) {
-                    previewCtx.fillStyle = color;
-                    previewCtx.fillRect(x * 3, y * 3, 3, 3);
-                }
-            }
-        }
-
-        // Check if this asset has been modified
-        const builtinAsset = BUILTIN_ASSETS.find(b => b.id === asset.id);
-        const isModified = builtinAsset && JSON.stringify(builtinAsset.pixels) !== JSON.stringify(asset.pixels);
-
-        item.innerHTML = `
-            <div class="info">
-                <div class="name">${asset.name}</div>
-                <div class="category">${asset.category}</div>
-                ${isModified ? '<div class="modified">✓ Modified</div>' : ''}
-            </div>
-        `;
-        item.insertBefore(previewCanvas, item.firstChild);
-
-        item.onclick = () => selectAsset(asset.id);
-        list.appendChild(item);
-    });
-
-    // Show/hide asset info panel
-    const assetInfo = document.getElementById('assetInfo');
-    if (assetInfo) {
-        assetInfo.style.display = selectedAssetId ? 'block' : 'none';
-    }
-}
-
-function selectAsset(assetId: string) {
-    selectedAssetId = assetId;
-    renderAssetList();
-
-    const asset = assets.find(a => a.id === assetId);
-    if (asset) {
-        // Update info panel
-        (document.getElementById('assetId') as HTMLInputElement).value = asset.id;
-        (document.getElementById('assetName') as HTMLInputElement).value = asset.name;
-        (document.getElementById('assetDesc') as HTMLTextAreaElement).value = asset.description || '';
-        (document.getElementById('assetColor') as HTMLInputElement).value = asset.color;
-    }
-}
-
-function loadAssetToCanvas() {
-    if (!selectedAssetId) {
-        showNotification('Select an asset first!');
-        return;
-    }
-
-    const asset = assets.find(a => a.id === selectedAssetId);
-    if (!asset) return;
-
-    // Load asset pixels to the editor canvas
-    pixelData = asset.pixels.map(row => [...row]);
-
-    // Clear sprite selection to indicate we're editing an asset
-    currentSpriteIndex = -1;
-    document.querySelectorAll('.sprite-item').forEach(item => item.classList.remove('selected'));
-
-    renderCanvas();
-    updatePreviews();
-    showNotification(`Loaded ${asset.name} to canvas`);
-}
-
-function saveCurrentAsset() {
-    if (!selectedAssetId) {
-        showNotification('Select an asset first!');
-        return;
-    }
-
-    const assetIndex = assets.findIndex(a => a.id === selectedAssetId);
-    if (assetIndex < 0) return;
-
-    // Update asset with current canvas data
-    const updatedAsset: GameAsset = {
-        ...assets[assetIndex],
-        pixels: pixelData.map(row => [...row]),
-        name: (document.getElementById('assetName') as HTMLInputElement).value || assets[assetIndex].name,
-        description: (document.getElementById('assetDesc') as HTMLTextAreaElement).value || '',
-        color: (document.getElementById('assetColor') as HTMLInputElement).value || '#ffffff'
-    };
-
-    // Save to storage
-    AssetManager.saveAsset(updatedAsset);
-
-    // Update local array
-    assets[assetIndex] = updatedAsset;
-
-    renderAssetList();
-    showNotification(`Saved ${updatedAsset.name}!`);
-}
-
-function resetSelectedAsset() {
-    if (!selectedAssetId) {
-        showNotification('Select an asset first!');
-        return;
-    }
-
-    // Find the built-in version
-    const builtinAsset = BUILTIN_ASSETS.find(a => a.id === selectedAssetId);
-    if (!builtinAsset) {
-        showNotification('No default version found!');
-        return;
-    }
-
-    // Delete custom version
-    AssetManager.deleteAsset(selectedAssetId);
-
-    // Reload assets
+    // Initialize
+    updateCanvasSize();
+    loadSprites();
     loadAssets();
-    renderAssetList();
+    setupColorPalette();
+    setupCanvasEvents();
+    setupUIEvents();
+    setupDropZone();
 
-    // Load default to canvas
-    pixelData = builtinAsset.pixels.map(row => [...row]);
+    // Initial state
+    saveToHistory();
     renderCanvas();
     updatePreviews();
+    renderSpriteList();
+    renderAssetList();
+    updateColorPreview();
 
-    showNotification(`Reset ${builtinAsset.name} to default`);
+    // Select first sprite or create new
+    if (sprites.length === 0) {
+        createNewSprite();
+    } else {
+        selectSprite(0);
+    }
 }
 
-// Start the editor
+// Start
 init();
