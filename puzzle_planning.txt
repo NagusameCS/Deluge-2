@@ -1,0 +1,596 @@
+================================================================================
+                    DELUGE 2 - PUZZLE SYSTEM PLANNING DOCUMENT
+================================================================================
+
+CURRENT PUZZLE TYPES (8 types):
+===============================
+
+1. SEQUENCE (Simon Says style)
+   - Player watches a sequence of symbols light up
+   - Must repeat the sequence using keys 1-4
+   - Length increases with difficulty (4 + puzzlesCompleted)
+   Current Implementation: Working, simple 4-button sequence
+
+2. MATCH (Memory Pairs)
+   - 8 cards (4 pairs) face down
+   - Reveal two cards at a time to find matching symbols
+   - Symbols: ♠ ♥ ♦ ♣ ★ ◆ ● ▲
+   Current Implementation: Working 4-pair matching
+
+3. MEMORY (Pattern Recall)
+   - 3x3 grid shows a pattern of lit cells
+   - Player memorizes and recreates the pattern
+   - Show time: 120 frames + 20 per completed puzzle
+   Current Implementation: Working 3x3 grid
+
+4. MATH (Arithmetic)
+   - Solve simple arithmetic: + - *
+   - Multiple choice (4 options)
+   - 10 second time limit
+   Current Implementation: Working with timer
+
+5. LOGIC (Deduction)
+   - Read logical statements
+   - Determine correct conclusion
+   - 8 predefined logic puzzles
+   Current Implementation: Working, needs more variety
+
+6. CIPHER (Substitution)
+   - Decode a shifted alphabet word
+   - Hint shows the shift value
+   - Words: FIRE, GOLD, SWORD, MAGIC, RUNE, HERO, QUEST, DARK
+   Current Implementation: Working, needs more words
+
+7. SLIDER (Tile Puzzle)
+   - 2x2 sliding tile puzzle
+   - Arrange numbers 1-3 with empty in position 4
+   Current Implementation: Working, very simple
+
+8. WIRE (Connection)
+   - Match 4 colored wires from left to right
+   - Colors: Red, Green, Blue, Yellow
+   Current Implementation: Working, simple matching
+
+
+================================================================================
+                    NEW PUZZLE EXPANSION PLAN (300 TOTAL)
+================================================================================
+
+TARGET: 300 unique puzzle instances across all categories
+Strategy: Expand each category with variants and difficulty levels
+
+--------------------------------------------------------------------------------
+CATEGORY 1: SEQUENCE PUZZLES (40 puzzles)
+--------------------------------------------------------------------------------
+
+1.1 Basic Sequences (10)
+#001: 4-button, length 4
+#002: 4-button, length 5
+#003: 4-button, length 6
+#004: 4-button, length 7
+#005: 4-button, length 8
+#006: 5-button, length 4
+#007: 5-button, length 5
+#008: 5-button, length 6
+#009: 6-button, length 4
+#010: 6-button, length 5
+
+1.2 Timed Sequences (10)
+#011: Fast display (30 frames), length 4
+#012: Fast display (30 frames), length 5
+#013: Very fast (20 frames), length 4
+#014: Very fast (20 frames), length 5
+#015: Instant flash (10 frames), length 3
+#016: Instant flash (10 frames), length 4
+#017: Variable speed, length 5
+#018: Variable speed, length 6
+#019: Reverse sequence, length 4
+#020: Reverse sequence, length 5
+
+1.3 Pattern Sequences (10)
+#021: Repeat last 2, length 6 (ABAB pattern)
+#022: Mirror sequence (1234321)
+#023: Double each (11223344)
+#024: Skip pattern (1-3-5-7)
+#025: Ascending (1234...)
+#026: Descending (4321...)
+#027: Zigzag (1324)
+#028: Repeat triple (111222)
+#029: Fibonacci pattern (1123)
+#030: Prime pattern (2357)
+
+1.4 Audio/Visual Variants (10)
+#031: Color-only (no numbers)
+#032: Shape-only (no colors)
+#033: Direction arrows
+#034: Musical notes (CDEFGAB)
+#035: Roman numerals (I II III IV)
+#036: Dice faces (⚀⚁⚂⚃⚄⚅)
+#037: Card suits (♠♥♦♣)
+#038: Moon phases (🌑🌒🌓🌔)
+#039: Compass directions (N E S W)
+#040: Binary (0 and 1 patterns)
+
+--------------------------------------------------------------------------------
+CATEGORY 2: MATCH/MEMORY PAIRS (35 puzzles)
+--------------------------------------------------------------------------------
+
+2.1 Basic Pairs (10)
+#041: 4 pairs (8 cards) - symbols
+#042: 4 pairs - numbers
+#043: 4 pairs - letters
+#044: 5 pairs (10 cards) - symbols
+#045: 5 pairs - mixed
+#046: 6 pairs (12 cards) - symbols
+#047: 6 pairs - colors
+#048: 8 pairs (16 cards) - symbols
+#049: 3 pairs fast (3 seconds per reveal)
+#050: 4 pairs fast
+
+2.2 Themed Pairs (15)
+#051: Weapon pairs (Sword-Sword, Axe-Axe)
+#052: Element pairs (Fire-Fire, Ice-Ice)
+#053: Creature pairs (Dragon-Dragon)
+#054: Rune pairs (Ancient symbols)
+#055: Number word pairs (3-THREE)
+#056: Opposite pairs (Hot-Cold) - match opposites
+#057: Math pairs (2+2 matches 4)
+#058: Color word pairs (Red-RED)
+#059: Animal pairs (emoji style)
+#060: Planet pairs
+#061: Chess piece pairs
+#062: Music note pairs
+#063: Greek letter pairs (α β γ δ)
+#064: Zodiac pairs (♈♉♊♋)
+#065: Alchemy symbol pairs
+
+2.3 Special Rules (10)
+#066: Cascade match (match 3+ reveals next set)
+#067: Timed reveal (cards auto-hide after 2 sec)
+#068: One-shot (wrong match ends puzzle)
+#069: Chain match (must match adjacent)
+#070: Blind start (no initial reveal)
+#071: Shuffle after each match
+#072: Penalty cards (avoid X symbols)
+#073: Bonus cards (star = +time)
+#074: Color blind mode (shapes only)
+#075: Progressive reveal (more pairs unlock)
+
+--------------------------------------------------------------------------------
+CATEGORY 3: MEMORY/PATTERN (35 puzzles)
+--------------------------------------------------------------------------------
+
+3.1 Grid Sizes (10)
+#076: 3x3 grid, 3 lit cells
+#077: 3x3 grid, 4 lit cells
+#078: 3x3 grid, 5 lit cells
+#079: 4x4 grid, 4 lit cells
+#080: 4x4 grid, 5 lit cells
+#081: 4x4 grid, 6 lit cells
+#082: 5x5 grid, 5 lit cells
+#083: 5x5 grid, 6 lit cells
+#084: 2x4 grid (rectangle)
+#085: 3x5 grid (rectangle)
+
+3.2 Pattern Types (15)
+#086: Shape pattern (square outline)
+#087: Shape pattern (cross)
+#088: Shape pattern (diagonal)
+#089: Shape pattern (L-shape)
+#090: Shape pattern (T-shape)
+#091: Letter pattern (spell A)
+#092: Letter pattern (spell X)
+#093: Number pattern (digit 1)
+#094: Number pattern (digit 7)
+#095: Arrow pattern (pointing up)
+#096: Arrow pattern (pointing right)
+#097: Checkerboard pattern
+#098: Stripe pattern (horizontal)
+#099: Stripe pattern (vertical)
+#100: Random cluster
+
+3.3 Memory Variants (10)
+#101: Progressive pattern (adds one each round)
+#102: Subtract pattern (remove one each round)
+#103: Moving pattern (shifts each round)
+#104: Rotating pattern (90° each round)
+#105: Flashing pattern (blinks 3 times)
+#106: Sequential reveal (one cell at a time)
+#107: Inverse pattern (remember OFF cells)
+#108: Color pattern (RGB cells)
+#109: Multi-layer (2 patterns overlay)
+#110: Decaying pattern (fades over time)
+
+--------------------------------------------------------------------------------
+CATEGORY 4: MATH PUZZLES (50 puzzles)
+--------------------------------------------------------------------------------
+
+4.1 Basic Arithmetic (15)
+#111: Addition (1-10)
+#112: Addition (10-50)
+#113: Addition (50-100)
+#114: Subtraction (1-20)
+#115: Subtraction (20-50)
+#116: Multiplication (1-5)
+#117: Multiplication (5-10)
+#118: Division (exact, 1-20)
+#119: Division (exact, 20-100)
+#120: Mixed + -
+#121: Mixed × ÷
+#122: Mixed all ops
+#123: Double operation (a + b - c)
+#124: Triple operation
+#125: Order of operations
+
+4.2 Number Properties (15)
+#126: Is it even or odd?
+#127: Is it prime?
+#128: Find the larger number
+#129: Find the smaller number
+#130: What's the difference?
+#131: What's the product?
+#132: Square of a number
+#133: Square root (perfect squares)
+#134: Double this number
+#135: Half this number
+#136: Next in sequence (arithmetic)
+#137: Next in sequence (geometric)
+#138: Missing number in sequence
+#139: Sum of digits
+#140: Reverse the number
+
+4.3 Word Problems (10)
+#141: "You have 5 potions, use 2, how many left?"
+#142: "Each chest has 3 gold, 4 chests = ?"
+#143: "Split 12 gold among 3 adventurers"
+#144: "10 goblins, defeat 4, flee 2, how many remain?"
+#145: "HP: 50, take 15 damage, heal 10, total HP?"
+#146: "Level 3, gain 2 levels, what level?"
+#147: "3 swords at 5 gold each, total cost?"
+#148: "20 arrows, use 3 per enemy, 4 enemies, left?"
+#149: "Party of 4, each needs 2 potions, total needed?"
+#150: "100 XP to level, have 75, need how much more?"
+
+4.4 Quick Math (10)
+#151: Speed round: 5 problems in 30 seconds
+#152: Speed round: 10 problems in 60 seconds
+#153: Countdown: solve before timer hits 0
+#154: Estimation: which is closest to 100?
+#155: Greater than or less than?
+#156: True or false: 7 × 8 = 54?
+#157: Fill in operator: 6 _ 3 = 18
+#158: Fill in number: 4 × _ = 20
+#159: Complete equation: _ + 7 = 15
+#160: Balance scale: 3 + ? = 10 - 2
+
+--------------------------------------------------------------------------------
+CATEGORY 5: LOGIC PUZZLES (50 puzzles)
+--------------------------------------------------------------------------------
+
+5.1 Conditional Logic (15)
+#161: If A then B, A is true, what is B?
+#162: If A then B, B is false, what is A?
+#163: If not A then B, A is true, what is B?
+#164: A or B (or both), A is false, what is B?
+#165: A and B, A is true, what is B?
+#166: If A then not B, A is true, what is B?
+#167: Either A or B (not both), A is true, what is B?
+#168: A implies B, B implies C, A is true, what is C?
+#169: Not (A and B), A is true, what is B?
+#170: A if and only if B, A is true, what is B?
+#171: Neither A nor B, what are both?
+#172: A unless B, B is true, what is A?
+#173: At most one of A, B, C is true
+#174: At least two of A, B, C are true
+#175: Exactly one of A, B, C is true
+
+5.2 Deduction (15)
+#176: All X are Y, this is X, is it Y?
+#177: All X are Y, this is Y, is it X?
+#178: No X are Y, this is X, is it Y?
+#179: Some X are Y, this is X, is it Y?
+#180: The tallest of three is...
+#181: Who sits in the middle?
+#182: If older than Bob, who is youngest?
+#183: Red is left of blue, blue is left of green
+#184: Not the first, not the last, which position?
+#185: Alibis: who has no alibi?
+#186: Three suspects, one truth-teller
+#187: Process of elimination (3 options, 2 ruled out)
+#188: Two statements, one is false
+#189: Ranking puzzle (A > B, B > C)
+#190: Category sorting (colors vs shapes)
+
+5.3 Riddles & Brain Teasers (20)
+#191: "I have keys but no locks" (keyboard/piano)
+#192: "Forward I'm heavy, backward I'm not" (ton)
+#193: "The more you take, the more you leave behind" (steps)
+#194: "What has hands but can't clap?" (clock)
+#195: "What can travel around the world staying in a corner?" (stamp)
+#196: "What gets wetter the more it dries?" (towel)
+#197: "What has a head and tail but no body?" (coin)
+#198: "What can you catch but not throw?" (cold)
+#199: "What has teeth but cannot bite?" (comb)
+#200: "What runs but never walks?" (water/river)
+#201: "How many months have 28 days?" (all 12)
+#202: "A man's son is his father's son's son" (grandson)
+#203: "Two fathers and two sons, 3 apples, 1 each" (3 people)
+#204: "What word is spelled wrong in every dictionary?" (wrong)
+#205: "If you have it, you want to share it" (secret)
+#206: "The poor have it, the rich need it" (nothing)
+#207: "What belongs to you but others use more?" (name)
+#208: "What can fill a room but takes no space?" (light)
+#209: "What breaks when you say it?" (silence)
+#210: "What goes up but never comes down?" (age)
+
+--------------------------------------------------------------------------------
+CATEGORY 6: CIPHER PUZZLES (30 puzzles)
+--------------------------------------------------------------------------------
+
+6.1 Caesar Cipher (10)
+#211: Shift +1 (A→B), 4 letters
+#212: Shift +2 (A→C), 4 letters
+#213: Shift +3 (A→D), 5 letters
+#214: Shift +4, 5 letters
+#215: Shift +5, 5 letters
+#216: Shift -1 (reverse), 4 letters
+#217: Shift -2, 4 letters
+#218: Unknown shift (guess from hint)
+#219: Double shift (shift twice)
+#220: Variable shift (1st letter +1, 2nd +2, etc.)
+
+6.2 Substitution (10)
+#221: A=1, B=2, C=3... decode number string
+#222: Reverse alphabet (A=Z, B=Y...)
+#223: Keyboard substitution (Q=A, W=B...)
+#224: Vowel swap (A↔E, I↔O, U→A)
+#225: Symbol substitution (★=A, ●=B...)
+#226: Morse code (.--.  .-. . ... ...)
+#227: Binary (01000001 = A)
+#228: Phone keypad (2=ABC, 3=DEF...)
+#229: Pig Latin (decode "IREFAY")
+#230: Backwards word (decode "DROWS" = SWORD)
+
+6.3 Word Puzzles (10)
+#231: Anagram (rearrange DROWS to spell weapon)
+#232: Missing vowels (DNGN = DUNGEON)
+#233: First letters spell word
+#234: Rhyme clue ("sounds like COLD" = GOLD)
+#235: Synonym decode ("BLAZE" = FIRE)
+#236: Antonym decode ("PEACE" opposite = WAR)
+#237: Compound word (FIRE + BALL)
+#238: Word within word (find WORD in SWORDFISH)
+#239: Palindrome check (is RACECAR same backwards?)
+#240: Letter count ("5 letters, starts with M, weapon")
+
+--------------------------------------------------------------------------------
+CATEGORY 7: SLIDER/TILE PUZZLES (30 puzzles)
+--------------------------------------------------------------------------------
+
+7.1 Number Sliders (10)
+#241: 2x2, arrange 1-3
+#242: 2x2, arrange 3-1 (reverse)
+#243: 3x3, arrange 1-8
+#244: 3x3, arrange 1-8 (15 moves max)
+#245: 3x3, arrange 1-8 (10 moves max)
+#246: 2x3, arrange 1-5
+#247: 2x3, arrange in columns
+#248: 3x2, arrange in rows
+#249: 4x4, arrange 1-15 (classic)
+#250: 4x4, arrange 1-15 (20 moves max)
+
+7.2 Picture Sliders (10)
+#251: 2x2 simple image
+#252: 3x3 rune symbol
+#253: 3x3 weapon icon
+#254: 3x3 creature face
+#255: 3x3 treasure chest
+#256: 4x4 dungeon map
+#257: 4x4 spell circle
+#258: 3x3 number (arrange to show "7")
+#259: 3x3 letter (arrange to show "A")
+#260: 3x3 arrow (arrange to point up)
+
+7.3 Special Sliders (10)
+#261: Color slider (arrange rainbow order)
+#262: Size slider (arrange small to large)
+#263: Rotation slider (tiles can rotate)
+#264: Wrap slider (edges connect)
+#265: Gravity slider (tiles fall down)
+#266: Ice slider (tiles slide until blocked)
+#267: Lock slider (some tiles fixed)
+#268: Double empty (2 empty spaces)
+#269: Timed slider (30 second limit)
+#270: Undo-limited (only 3 undos)
+
+--------------------------------------------------------------------------------
+CATEGORY 8: WIRE/CONNECTION PUZZLES (30 puzzles)
+--------------------------------------------------------------------------------
+
+8.1 Basic Connections (10)
+#271: 4 wires, match colors
+#272: 5 wires, match colors
+#273: 6 wires, match colors
+#274: 4 wires, match numbers
+#275: 4 wires, match shapes
+#276: 4 wires, match letters
+#277: 5 wires, mixed symbols
+#278: 6 wires, mixed symbols
+#279: 4 wires, no crossing allowed
+#280: 5 wires, no crossing allowed
+
+8.2 Pattern Connections (10)
+#281: Connect same colors (multiple per color)
+#282: Connect sequential numbers (1→2→3→4)
+#283: Connect alphabetically (A→B→C→D)
+#284: Connect by size (small→large)
+#285: Connect opposites (hot→cold, up→down)
+#286: Connect pairs (shoe→sock, key→lock)
+#287: Connect word associations
+#288: Connect math (problem→answer)
+#289: Connect synonyms
+#290: Connect antonyms
+
+8.3 Complex Connections (10)
+#291: Flow puzzle (connect all pipe segments)
+#292: Bridge puzzle (connect islands)
+#293: Circuit puzzle (complete the circuit)
+#294: Path puzzle (start to end without crossing)
+#295: Network puzzle (connect all nodes)
+#296: Layered connections (3 layers)
+#297: Timed connections (connect in order)
+#298: Limited connections (only 3 wires available)
+#299: Rotating endpoints (endpoints shift)
+#300: Ultimate wire challenge (8 wires, complex)
+
+
+================================================================================
+                    IMPLEMENTATION PHASES
+================================================================================
+
+PHASE 1: System Redesign
+- Create PuzzleDatabase class to hold all 300 puzzles
+- Create PuzzleDefinition interface for puzzle specs
+- Create PuzzleInstance for runtime state
+- Add difficulty rating system (1-5 stars)
+- Add category/subcategory organization
+
+PHASE 2: Main Menu
+- Create MainMenu game state
+- Add options: New Game, Continue, Puzzle Practice, Settings, Credits
+- Create menu navigation system
+
+PHASE 3: Puzzle Practice Mode
+- Create PuzzlePractice game state
+- Implement streak counter (puzzles in a row)
+- Implement high score tracking
+- Add category selection
+- Add difficulty selection
+
+PHASE 4: Puzzle Implementation (Batches of 50)
+- Batch 1: #001-050 (Sequence + Match categories)
+- Batch 2: #051-100 (Match cont. + Memory)
+- Batch 3: #101-150 (Memory cont. + Math)
+- Batch 4: #151-200 (Math cont. + Logic)
+- Batch 5: #201-250 (Logic cont. + Cipher + Slider start)
+- Batch 6: #251-300 (Slider cont. + Wire)
+
+PHASE 5: Polish
+- Add puzzle unlock progression
+- Add puzzle statistics tracking
+- Add achievements for puzzle mastery
+- Balance difficulty curve
+
+
+================================================================================
+                    DATA STRUCTURE REDESIGN
+================================================================================
+
+interface PuzzleDefinition {
+    id: number;                    // 1-300
+    category: PuzzleCategory;      // sequence, match, memory, math, logic, cipher, slider, wire
+    subcategory: string;           // e.g., "basic", "timed", "pattern"
+    difficulty: 1 | 2 | 3 | 4 | 5; // Star rating
+    name: string;                  // Display name
+    description: string;           // How to solve
+    config: PuzzleConfig;          // Type-specific configuration
+}
+
+interface PuzzleConfig {
+    // Sequence
+    sequenceLength?: number;
+    buttonCount?: number;
+    displaySpeed?: number;
+    pattern?: 'random' | 'repeat' | 'mirror' | 'ascending' | 'descending';
+    
+    // Match
+    pairCount?: number;
+    symbols?: string[];
+    matchRule?: 'same' | 'opposite' | 'math';
+    timePerReveal?: number;
+    
+    // Memory
+    gridWidth?: number;
+    gridHeight?: number;
+    litCells?: number;
+    showTime?: number;
+    patternType?: 'random' | 'shape' | 'letter' | 'number';
+    
+    // Math
+    operations?: ('+' | '-' | '*' | '/')[];
+    numberRange?: [number, number];
+    optionCount?: number;
+    timeLimit?: number;
+    
+    // Logic
+    puzzleText?: string;
+    answer?: string;
+    options?: string[];
+    
+    // Cipher
+    word?: string;
+    cipherType?: 'caesar' | 'substitution' | 'reverse' | 'anagram';
+    shift?: number;
+    
+    // Slider
+    gridSize?: number;
+    maxMoves?: number;
+    tileContent?: 'numbers' | 'image' | 'colors';
+    
+    // Wire
+    wireCount?: number;
+    connectionType?: 'color' | 'number' | 'shape' | 'sequence';
+    allowCrossing?: boolean;
+}
+
+class PuzzleDatabase {
+    private puzzles: Map<number, PuzzleDefinition>;
+    private byCategory: Map<PuzzleCategory, PuzzleDefinition[]>;
+    private byDifficulty: Map<number, PuzzleDefinition[]>;
+    
+    getPuzzle(id: number): PuzzleDefinition;
+    getByCategory(category: PuzzleCategory): PuzzleDefinition[];
+    getByDifficulty(difficulty: number): PuzzleDefinition[];
+    getRandomPuzzle(category?: PuzzleCategory, difficulty?: number): PuzzleDefinition;
+}
+
+
+================================================================================
+                    PROGRESS TRACKING
+================================================================================
+
+[ ] Phase 1: System Redesign
+    [ ] PuzzleDefinition interface
+    [ ] PuzzleDatabase class
+    [ ] Puzzle factory functions
+    [ ] Difficulty rating system
+
+[ ] Phase 2: Main Menu
+    [ ] MainMenu state
+    [ ] Menu rendering
+    [ ] Menu navigation
+    [ ] State transitions
+
+[ ] Phase 3: Puzzle Practice Mode
+    [ ] PuzzlePractice state
+    [ ] Streak system
+    [ ] High score persistence
+    [ ] Category/difficulty selection
+
+[ ] Phase 4: Puzzle Implementation
+    [ ] Batch 1: #001-050
+    [ ] Batch 2: #051-100
+    [ ] Batch 3: #101-150
+    [ ] Batch 4: #151-200
+    [ ] Batch 5: #201-250
+    [ ] Batch 6: #251-300
+
+[ ] Phase 5: Polish
+    [ ] Unlock progression
+    [ ] Statistics
+    [ ] Achievements
+
+
+================================================================================
+END OF PLANNING DOCUMENT
+================================================================================

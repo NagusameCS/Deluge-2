@@ -13,8 +13,10 @@ import { SKILL_TREES, canMulticlass, getAvailableMulticlasses } from './SkillTre
 import type { SkillTree } from './SkillTree';
 import { multiplayer, DuelPhase, DuelAction, type DuelState, type DuelStats, type GameRoom } from './Multiplayer';
 import { getBiomeName } from './Biomes';
+import { type NPC, type SkillReallocation, generateFloorNPCs, getNPCDialogue, getSoulTraderOptions, applySkillReallocation } from './NPC';
 
 export const GameState = {
+    MainMenu: -1,
     Map: 0,
     Combat: 1,
     MultiCombat: 2,
@@ -28,7 +30,11 @@ export const GameState = {
     Multiclass: 10,
     MultiplayerLobby: 11,
     DuelSetup: 12,
-    Duel: 13
+    Duel: 13,
+    Trading: 14,
+    SoulTrading: 15,
+    PuzzlePractice: 16,
+    PuzzlePracticeGame: 17
 } as const;
 
 export type GameState = typeof GameState[keyof typeof GameState];
@@ -98,6 +104,24 @@ export class Game {
     reaperSpawned: boolean = false;
     reaper: Enemy | null = null;
 
+    // NPCs and Trading
+    npcs: NPC[] = [];
+    currentNPC: NPC | null = null;
+    traderSelectedIndex: number = 0;
+    soulTraderOptions: SkillReallocation[] = [];
+    soulTraderSelectedIndex: number = 0;
+
+    // Main Menu
+    mainMenuOption: number = 0;
+    mainMenuOptions: string[] = ['New Game', 'Continue', 'Puzzle Practice', 'Settings', 'Credits'];
+
+    // Puzzle Practice Mode
+    puzzlePracticeCore: DungeonCore | null = null;
+    puzzleStreak: number = 0;
+    puzzleHighScore: number = 0;
+    puzzlePracticeMenuOption: number = 0;
+    puzzleTotalSolved: number = 0;
+
     constructor() {
         this.renderer = new Renderer('gameCanvas', VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
         this.inputHandler = new InputHandler(this.handleInput.bind(this));
@@ -109,6 +133,34 @@ export class Game {
         // Load available player classes
         this.loadPlayerClasses();
 
+        // Load puzzle high score
+        this.loadPuzzleHighScore();
+
+        // Start at main menu
+        this.state = GameState.MainMenu;
+    }
+
+    loadPuzzleHighScore() {
+        try {
+            const saved = localStorage.getItem('deluge2_puzzle_highscore');
+            if (saved) {
+                this.puzzleHighScore = parseInt(saved, 10) || 0;
+            }
+        } catch (e) {
+            console.error('Failed to load puzzle high score:', e);
+        }
+    }
+
+    savePuzzleHighScore() {
+        try {
+            localStorage.setItem('deluge2_puzzle_highscore', this.puzzleHighScore.toString());
+        } catch (e) {
+            console.error('Failed to save puzzle high score:', e);
+        }
+    }
+
+    startFromMainMenu() {
+        // Check for save data
         if (this.loadGame()) {
             this.log("Welcome back to Deluge-2!");
         } else {
@@ -122,6 +174,211 @@ export class Game {
         }
 
         this.loop();
+    }
+
+    startPuzzlePractice() {
+        // Create a dungeon core for practice mode
+        this.puzzlePracticeCore = new DungeonCore(0, 0, Math.floor(this.puzzleTotalSolved / 10) + 1);
+        this.puzzleStreak = 0;
+        this.state = GameState.PuzzlePracticeGame;
+    }
+
+    handlePuzzlePracticeInput(key: string) {
+        if (!this.puzzlePracticeCore) return;
+
+        if (key === 'Escape') {
+            // Exit to puzzle practice menu
+            this.state = GameState.PuzzlePractice;
+            this.puzzlePracticeCore = null;
+            return;
+        }
+
+        const puzzleType = this.puzzlePracticeCore.puzzleType;
+        const puzzle = this.puzzlePracticeCore.puzzleData;
+
+        // Handle different puzzle types - mirrors handlePuzzleInput but for practice mode
+        if (puzzleType === 'sequence') {
+            if (puzzle.showingSequence) return;
+
+            const num = parseInt(key);
+            if (num >= 1 && num <= 4) {
+                if (num === puzzle.sequence[puzzle.currentIndex]) {
+                    puzzle.currentIndex++;
+                    if (puzzle.currentIndex >= puzzle.sequence.length) {
+                        this.onPuzzlePracticeSuccess();
+                    }
+                } else {
+                    this.onPuzzlePracticeFail();
+                }
+            }
+        } else if (puzzleType === 'match') {
+            if (puzzle.hideTimer > 0) return;
+
+            const num = parseInt(key);
+            if (num >= 1 && num <= 8) {
+                const idx = num - 1;
+                const card = puzzle.cards[idx];
+
+                if (card.matched || card.revealed) return;
+
+                card.revealed = true;
+
+                if (puzzle.firstSelection === -1) {
+                    puzzle.firstSelection = idx;
+                } else {
+                    const first = puzzle.cards[puzzle.firstSelection];
+                    if (first.symbol === card.symbol) {
+                        first.matched = true;
+                        card.matched = true;
+                        puzzle.matchesMade++;
+
+                        if (puzzle.matchesMade >= puzzle.matchesNeeded) {
+                            this.onPuzzlePracticeSuccess();
+                        }
+                    } else {
+                        puzzle.hideTimer = 40;
+                    }
+                    puzzle.firstSelection = -1;
+                }
+            }
+        } else if (puzzleType === 'memory') {
+            if (puzzle.showingPattern) return;
+
+            const num = parseInt(key);
+            if (num >= 1 && num <= 9) {
+                const idx = num - 1;
+                const gx = idx % 3;
+                const gy = Math.floor(idx / 3);
+                puzzle.playerPattern[gy][gx] = !puzzle.playerPattern[gy][gx];
+            }
+
+            if (key === 'Enter') {
+                let correct = true;
+                for (let y = 0; y < puzzle.gridSize; y++) {
+                    for (let x = 0; x < puzzle.gridSize; x++) {
+                        if (puzzle.pattern[y][x] !== puzzle.playerPattern[y][x]) {
+                            correct = false;
+                        }
+                    }
+                }
+
+                if (correct) {
+                    this.onPuzzlePracticeSuccess();
+                } else {
+                    this.onPuzzlePracticeFail();
+                }
+            }
+        } else if (puzzleType === 'math') {
+            const num = parseInt(key);
+            if (num >= 1 && num <= 4) {
+                const selectedAnswer = puzzle.options[num - 1];
+                if (selectedAnswer === puzzle.answer) {
+                    this.onPuzzlePracticeSuccess();
+                } else {
+                    this.onPuzzlePracticeFail();
+                }
+            }
+        } else if (puzzleType === 'logic') {
+            const num = parseInt(key);
+            if (num >= 1 && num <= puzzle.options.length) {
+                const selectedAnswer = puzzle.options[num - 1];
+                if (selectedAnswer === puzzle.answer) {
+                    this.onPuzzlePracticeSuccess();
+                } else {
+                    this.onPuzzlePracticeFail();
+                }
+            }
+        } else if (puzzleType === 'cipher') {
+            const upperKey = key.toUpperCase();
+
+            if (key === 'Backspace') {
+                puzzle.playerInput = puzzle.playerInput.slice(0, -1);
+            } else if (key === 'Enter') {
+                if (puzzle.playerInput.toUpperCase() === puzzle.answer) {
+                    this.onPuzzlePracticeSuccess();
+                } else {
+                    this.onPuzzlePracticeFail();
+                }
+            } else if (upperKey >= 'A' && upperKey <= 'Z' && puzzle.playerInput.length < puzzle.maxLength) {
+                puzzle.playerInput += upperKey;
+            }
+        } else if (puzzleType === 'slider') {
+            const tiles = puzzle.tiles;
+            const emptyIdx = tiles.indexOf(0);
+            let swapIdx = -1;
+
+            if ((key === 'ArrowLeft' || key === 'a' || key === '2') && emptyIdx % 2 !== 1) {
+                swapIdx = emptyIdx + 1;
+            } else if ((key === 'ArrowRight' || key === 'd' || key === '1') && emptyIdx % 2 !== 0) {
+                swapIdx = emptyIdx - 1;
+            } else if ((key === 'ArrowUp' || key === 'w' || key === '4') && emptyIdx < 2) {
+                swapIdx = emptyIdx + 2;
+            } else if ((key === 'ArrowDown' || key === 's' || key === '3') && emptyIdx >= 2) {
+                swapIdx = emptyIdx - 2;
+            }
+
+            if (swapIdx >= 0 && swapIdx < 4) {
+                [tiles[emptyIdx], tiles[swapIdx]] = [tiles[swapIdx], tiles[emptyIdx]];
+                puzzle.moves++;
+
+                let solved = true;
+                for (let i = 0; i < 4; i++) {
+                    if (tiles[i] !== puzzle.goal[i]) solved = false;
+                }
+                if (solved) {
+                    this.onPuzzlePracticeSuccess();
+                }
+            }
+        } else if (puzzleType === 'wire') {
+            const num = parseInt(key);
+            if (num >= 1 && num <= 4) {
+                const idx = num - 1;
+                if (puzzle.selectedLeft === -1) {
+                    puzzle.selectedLeft = idx;
+                } else {
+                    puzzle.connections[puzzle.selectedLeft] = idx;
+                    puzzle.selectedLeft = -1;
+
+                    let allCorrect = true;
+                    for (let i = 0; i < 4; i++) {
+                        if (puzzle.connections[i] !== puzzle.correctConnections[i]) {
+                            allCorrect = false;
+                            break;
+                        }
+                    }
+                    if (allCorrect) {
+                        this.onPuzzlePracticeSuccess();
+                    }
+                }
+            }
+            if (key === '0') {
+                puzzle.selectedLeft = -1;
+            }
+        }
+    }
+
+    onPuzzlePracticeSuccess() {
+        this.puzzleStreak++;
+        this.puzzleTotalSolved++;
+
+        if (this.puzzleStreak > this.puzzleHighScore) {
+            this.puzzleHighScore = this.puzzleStreak;
+            this.savePuzzleHighScore();
+            this.notify(`NEW HIGH SCORE: ${this.puzzleHighScore}!`, 3000);
+        } else {
+            this.notify(`Correct! Streak: ${this.puzzleStreak}`, 1500);
+        }
+
+        // Generate a new puzzle with increasing difficulty
+        const difficulty = Math.floor(this.puzzleTotalSolved / 10) + 1;
+        this.puzzlePracticeCore = new DungeonCore(0, 0, Math.min(difficulty, 20));
+    }
+
+    onPuzzlePracticeFail() {
+        this.notify(`Wrong! Final streak: ${this.puzzleStreak}`, 2500);
+        this.puzzleStreak = 0;
+        this.state = GameState.PuzzlePractice;
+        this.puzzlePracticeCore = null;
     }
 
     loadPlayerClasses() {
@@ -365,6 +622,9 @@ export class Game {
             }
         }
 
+        // Generate NPCs for this floor (traders, soul traders, etc.)
+        this.npcs = generateFloorNPCs(this.floor, this.map.rooms);
+
         this.saveGame();
     }
 
@@ -435,6 +695,76 @@ export class Game {
     }
 
     handleInput(key: string) {
+        // Main Menu
+        if (this.state === GameState.MainMenu) {
+            if (key === 'ArrowUp' || key === 'w') {
+                this.mainMenuOption = Math.max(0, this.mainMenuOption - 1);
+            } else if (key === 'ArrowDown' || key === 's') {
+                this.mainMenuOption = Math.min(this.mainMenuOptions.length - 1, this.mainMenuOption + 1);
+            } else if (key === 'Enter' || key === ' ') {
+                switch (this.mainMenuOption) {
+                    case 0: // New Game
+                        localStorage.removeItem('deluge2_save');
+                        if (this.availableClasses.length > 1) {
+                            this.state = GameState.ClassSelect;
+                        } else {
+                            this.startNewGame();
+                            this.state = GameState.Map;
+                        }
+                        break;
+                    case 1: // Continue
+                        if (this.loadGame()) {
+                            this.state = GameState.Map;
+                        } else {
+                            this.notify('No save data found!', 2000);
+                        }
+                        break;
+                    case 2: // Puzzle Practice
+                        this.state = GameState.PuzzlePractice;
+                        this.puzzlePracticeMenuOption = 0;
+                        break;
+                    case 3: // Settings
+                        this.notify('Settings not yet implemented', 2000);
+                        break;
+                    case 4: // Credits
+                        this.notify('Deluge 2 - A Roguelike Adventure', 2000);
+                        break;
+                }
+            }
+            return;
+        }
+
+        // Puzzle Practice Menu
+        if (this.state === GameState.PuzzlePractice) {
+            if (key === 'Escape') {
+                this.state = GameState.MainMenu;
+            } else if (key === 'ArrowUp' || key === 'w') {
+                this.puzzlePracticeMenuOption = Math.max(0, this.puzzlePracticeMenuOption - 1);
+            } else if (key === 'ArrowDown' || key === 's') {
+                this.puzzlePracticeMenuOption = Math.min(2, this.puzzlePracticeMenuOption + 1);
+            } else if (key === 'Enter' || key === ' ') {
+                if (this.puzzlePracticeMenuOption === 0) {
+                    // Start puzzle practice
+                    this.startPuzzlePractice();
+                } else if (this.puzzlePracticeMenuOption === 1) {
+                    // Reset high score
+                    this.puzzleHighScore = 0;
+                    this.savePuzzleHighScore();
+                    this.notify('High score reset!', 1500);
+                } else if (this.puzzlePracticeMenuOption === 2) {
+                    // Back to main menu
+                    this.state = GameState.MainMenu;
+                }
+            }
+            return;
+        }
+
+        // Puzzle Practice Game
+        if (this.state === GameState.PuzzlePracticeGame && this.puzzlePracticeCore) {
+            this.handlePuzzlePracticeInput(key);
+            return;
+        }
+
         // Class selection
         if (this.state === GameState.ClassSelect) {
             if (key === 'ArrowUp' || key === 'w') {
@@ -451,7 +781,7 @@ export class Game {
             return;
         }
 
-        if (this.player.isDead) {
+        if (this.player && this.player.isDead) {
             if (key === 'Enter') {
                 this.resetGame();
             }
@@ -615,6 +945,63 @@ export class Game {
             return;
         }
 
+        // Trading state
+        if (this.state === GameState.Trading && this.currentNPC) {
+            if (key === 'Escape') {
+                this.state = GameState.Map;
+                this.currentNPC = null;
+            } else if (key === 'ArrowUp' || key === 'w') {
+                this.traderSelectedIndex = Math.max(0, this.traderSelectedIndex - 1);
+            } else if (key === 'ArrowDown' || key === 's') {
+                this.traderSelectedIndex = Math.min(this.currentNPC.inventory.length - 1, this.traderSelectedIndex + 1);
+            } else if (key === 'Enter' || key === ' ') {
+                const item = this.currentNPC.inventory[this.traderSelectedIndex];
+                if (item && this.player.inventory.gold >= item.cost) {
+                    this.player.inventory.gold -= item.cost;
+                    if (item.type === 'heal') {
+                        this.player.heal(item.value);
+                        this.log(`Restored ${item.value} HP!`);
+                        this.notify(`+${item.value} HP`, 1500);
+                    } else if (item.type === 'mana') {
+                        this.player.restoreMana(item.value);
+                        this.log(`Restored ${item.value} Mana!`);
+                        this.notify(`+${item.value} MP`, 1500);
+                    } else if (item.type === 'material' && item.materialType) {
+                        const current = this.player.getMaterialCount(item.materialType);
+                        this.player.inventory.materials.set(item.materialType, current + item.value);
+                        this.log(`Bought ${item.name}!`);
+                        this.notify(`Got ${item.name}!`, 1500);
+                    }
+                } else {
+                    this.notify("Not enough gold!", 1500);
+                }
+            }
+            return;
+        }
+
+        // Soul Trading state
+        if (this.state === GameState.SoulTrading && this.currentNPC) {
+            if (key === 'Escape') {
+                this.state = GameState.Map;
+                this.currentNPC = null;
+            } else if (key === 'ArrowUp' || key === 'w') {
+                this.soulTraderSelectedIndex = Math.max(0, this.soulTraderSelectedIndex - 1);
+            } else if (key === 'ArrowDown' || key === 's') {
+                this.soulTraderSelectedIndex = Math.min(this.soulTraderOptions.length - 1, this.soulTraderSelectedIndex + 1);
+            } else if (key === 'Enter' || key === ' ') {
+                const option = this.soulTraderOptions[this.soulTraderSelectedIndex];
+                if (option) {
+                    if (applySkillReallocation(this.player, option)) {
+                        this.log(`Exchanged ${option.from} for ${option.to}!`);
+                        this.notify('Stats reallocated!', 1500);
+                    } else {
+                        this.notify("Can't do that exchange!", 1500);
+                    }
+                }
+            }
+            return;
+        }
+
         if (this.state === GameState.LevelUp) {
             if (key === '1') { this.player.baseStats.maxHp += 10; this.player.stats.hp += 10; }
             else if (key === '2') { this.player.baseStats.maxMana += 10; this.player.stats.mana += 10; }
@@ -716,33 +1103,42 @@ export class Game {
                 } else {
                     this.startCombat(this.core);
                 }
-            } else if (!this.map.isBlocked(destX, destY)) {
-                this.player.move(dx, dy);
-
-                // Check for items
-                const itemIndex = this.items.findIndex(i => i.x === destX && i.y === destY);
-                if (itemIndex !== -1) {
-                    const item = this.items[itemIndex];
-                    this.pickupItem(item);
-                    this.items.splice(itemIndex, 1);
+            } else {
+                // Check for NPCs
+                const npc = this.npcs.find(n => n.x === destX && n.y === destY);
+                if (npc) {
+                    this.interactWithNPC(npc);
+                    return;
                 }
 
-                // Check for chests
-                const chestIndex = this.chests.findIndex(c => c.x === destX && c.y === destY && !c.opened);
-                if (chestIndex !== -1) {
-                    const chest = this.chests[chestIndex];
-                    this.openChest(chest);
-                }
+                if (!this.map.isBlocked(destX, destY)) {
+                    this.player.move(dx, dy);
 
-                // Check for traps
-                const trap = this.traps.find(t => t.x === destX && t.y === destY && !t.triggered);
-                if (trap) {
-                    this.triggerTrap(trap);
-                }
+                    // Check for items
+                    const itemIndex = this.items.findIndex(i => i.x === destX && i.y === destY);
+                    if (itemIndex !== -1) {
+                        const item = this.items[itemIndex];
+                        this.pickupItem(item);
+                        this.items.splice(itemIndex, 1);
+                    }
 
-                // Track movement for reaper spawn
-                this.floorMoveCount++;
-                this.checkReaperSpawn();
+                    // Check for chests
+                    const chestIndex = this.chests.findIndex(c => c.x === destX && c.y === destY && !c.opened);
+                    if (chestIndex !== -1) {
+                        const chest = this.chests[chestIndex];
+                        this.openChest(chest);
+                    }
+
+                    // Check for traps
+                    const trap = this.traps.find(t => t.x === destX && t.y === destY && !t.triggered);
+                    if (trap) {
+                        this.triggerTrap(trap);
+                    }
+
+                    // Track movement for reaper spawn
+                    this.floorMoveCount++;
+                    this.checkReaperSpawn();
+                }
             }
 
             this.player.updateBuffs();
@@ -805,6 +1201,59 @@ export class Game {
         this.viewingSecondaryTree = false;
         this.selectedSkillTreeNode = 0;
         this.state = GameState.SkillTree;
+    }
+
+    interactWithNPC(npc: NPC) {
+        this.currentNPC = npc;
+        const dialogue = getNPCDialogue(npc);
+        this.log(`${npc.name}: "${dialogue}"`);
+
+        switch (npc.type) {
+            case 'trader':
+            case 'blacksmith':
+                this.traderSelectedIndex = 0;
+                this.state = GameState.Trading;
+                this.notify(`Trading with ${npc.name}`, 1500);
+                break;
+            case 'soul_trader':
+                this.soulTraderOptions = getSoulTraderOptions(this.floor);
+                this.soulTraderSelectedIndex = 0;
+                this.state = GameState.SoulTrading;
+                this.notify(`Soul exchange with ${npc.name}`, 1500);
+                break;
+            case 'healer':
+                // Free healing once per floor
+                if (!npc.interacted) {
+                    npc.interacted = true;
+                    const healAmount = 50 + this.floor * 10;
+                    this.player.heal(healAmount);
+                    this.player.restoreMana(30 + this.floor * 5);
+                    this.log(`${npc.name} restores your vitality!`);
+                    this.notify(`Healed ${healAmount} HP!`, 2000);
+                } else {
+                    this.log(`${npc.name}: "I've already blessed you on this floor."`);
+                    this.notify('Already healed this floor', 1500);
+                }
+                break;
+            case 'sage':
+                // Sage gives hints and maybe a small buff
+                if (!npc.interacted) {
+                    npc.interacted = true;
+                    const tips = [
+                        "The deeper floors hold greater dangers... and rewards.",
+                        "Don't linger too long, or the Reaper may find you.",
+                        "Soul Traders can help reshape your abilities.",
+                        "Golden enemies drop extra loot - but they flee!",
+                    ];
+                    this.log(tips[Math.floor(Math.random() * tips.length)]);
+                    // Small XP bonus
+                    this.player.stats.xp += 10 * this.floor;
+                    this.notify(`+${10 * this.floor} XP from wisdom!`, 2000);
+                } else {
+                    this.log(`${npc.name}: "Seek wisdom in your actions, not just words."`);
+                }
+                break;
+        }
     }
 
     openChest(chest: Chest) {
@@ -1386,6 +1835,16 @@ export class Game {
             }
         }
 
+        // Update puzzle practice animations
+        if (this.state === GameState.PuzzlePracticeGame && this.puzzlePracticeCore) {
+            this.puzzlePracticeCore.updatePuzzle();
+
+            // Check for math puzzle timeout in practice mode
+            if (this.puzzlePracticeCore.puzzleType === 'math' && this.puzzlePracticeCore.puzzleData.timer <= 0) {
+                this.onPuzzlePracticeFail();
+            }
+        }
+
         if (this.state === GameState.Combat && this.combatSystem) {
             this.combatSystem.update();
 
@@ -1450,7 +1909,18 @@ export class Game {
     draw() {
         this.renderer.clear();
 
-        if (this.state === GameState.ClassSelect) {
+        if (this.state === GameState.MainMenu) {
+            this.renderer.drawMainMenu(this.mainMenuOption, this.mainMenuOptions);
+        } else if (this.state === GameState.PuzzlePractice) {
+            this.renderer.drawPuzzlePracticeMenu(
+                this.puzzlePracticeMenuOption,
+                this.puzzleStreak,
+                this.puzzleHighScore,
+                this.puzzleTotalSolved
+            );
+        } else if (this.state === GameState.PuzzlePracticeGame && this.puzzlePracticeCore) {
+            this.renderer.drawPuzzlePractice(this.puzzlePracticeCore, this.puzzleStreak);
+        } else if (this.state === GameState.ClassSelect) {
             this.renderer.drawClassSelection(this.availableClasses, this.selectedClassIndex);
         } else if (this.state === GameState.Combat && this.combatSystem) {
             this.renderer.drawCombat(this.combatSystem);
@@ -1493,6 +1963,16 @@ export class Game {
             this.renderer.drawDuelStatAllocation(this.duelStats, this.duelSelectedStat);
         } else if (this.state === GameState.Duel && this.duelState) {
             this.renderer.drawDuel(this.duelState, true); // Always player 1 in local
+        } else if (this.state === GameState.Trading && this.currentNPC) {
+            this.renderer.drawTrading(this.currentNPC, this.traderSelectedIndex, this.player.inventory.gold);
+        } else if (this.state === GameState.SoulTrading && this.currentNPC) {
+            this.renderer.drawSoulTrading(
+                this.currentNPC,
+                this.soulTraderOptions,
+                this.soulTraderSelectedIndex,
+                this.player.inventory.gold,
+                this.player.baseStats
+            );
         } else if (this.state === GameState.LevelUp) {
             // Draw map in background
             this.renderer.drawMap(this.map, this.player.x, this.player.y);
@@ -1519,6 +1999,11 @@ export class Game {
 
             if (this.core) {
                 this.renderer.drawEntity(this.core, this.map, camX, camY);
+            }
+
+            // Draw NPCs
+            for (const npc of this.npcs) {
+                this.renderer.drawNPC(npc, this.map, camX, camY);
             }
 
             for (const enemy of this.enemies) {
