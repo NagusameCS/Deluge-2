@@ -1,7 +1,7 @@
 import { GameMap } from './Map';
 import { Entity, Item, Trap, Player } from './Entity';
 import { TILE_SIZE, TileType, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from './utils';
-import { CombatSystem } from './Combat';
+import { CombatSystem, CombatPhase, ACTIONS } from './Combat';
 
 export class Renderer {
     canvas: HTMLCanvasElement;
@@ -187,57 +187,270 @@ export class Renderer {
     }
 
     drawCombat(combat: CombatSystem) {
-        // Draw overlay
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        // Draw dark overlay
+        this.ctx.fillStyle = 'rgba(10, 5, 15, 0.95)';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-        const cellSize = 40;
-        const gridStartX = (this.canvas.width - (combat.gridSize * cellSize)) / 2;
-        const gridStartY = (this.canvas.height - (combat.gridSize * cellSize)) / 2;
+        const centerX = this.canvas.width / 2;
 
-        // Draw Grid
-        this.ctx.strokeStyle = '#444';
-        for (let y = 0; y < combat.gridSize; y++) {
-            for (let x = 0; x < combat.gridSize; x++) {
-                this.ctx.strokeRect(gridStartX + x * cellSize, gridStartY + y * cellSize, cellSize, cellSize);
+        // ========== TITLE BAR ==========
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 24px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(`⚔️ COMBAT - Turn ${combat.turn}`, centerX, 35);
+
+        // ========== COMBATANT DISPLAY ==========
+        const playerBoxX = 80;
+        const enemyBoxX = this.canvas.width - 280;
+        const boxY = 60;
+        const boxW = 200;
+        const boxH = 120;
+
+        // Player box
+        this.ctx.fillStyle = 'rgba(0, 50, 100, 0.8)';
+        this.ctx.fillRect(playerBoxX, boxY, boxW, boxH);
+        this.ctx.strokeStyle = '#0af';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(playerBoxX, boxY, boxW, boxH);
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 16px monospace';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText('YOU', playerBoxX + 10, boxY + 25);
+
+        // Player HP bar
+        this.drawBar(playerBoxX + 10, boxY + 35, boxW - 20, 18,
+            combat.player.stats.hp, combat.player.stats.maxHp, '#0f0', '#300', 'HP');
+
+        // Player Mana bar
+        this.drawBar(playerBoxX + 10, boxY + 58, boxW - 20, 14,
+            combat.player.stats.mana, combat.player.stats.maxMana, '#00f', '#003', 'MP');
+
+        // Player Stamina bar
+        this.drawBar(playerBoxX + 10, boxY + 77, boxW - 20, 14,
+            combat.playerStamina, combat.maxPlayerStamina, '#ff0', '#330', 'ST');
+
+        // Combo points
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '12px monospace';
+        this.ctx.fillText(`Combo: `, playerBoxX + 10, boxY + 108);
+        for (let i = 0; i < combat.maxComboPoints; i++) {
+            this.ctx.fillStyle = i < combat.comboPoints ? '#f80' : '#444';
+            this.ctx.fillRect(playerBoxX + 60 + i * 20, boxY + 98, 15, 15);
+        }
+
+        // Enemy box
+        this.ctx.fillStyle = 'rgba(100, 20, 20, 0.8)';
+        this.ctx.fillRect(enemyBoxX, boxY, boxW, boxH);
+        this.ctx.strokeStyle = '#f44';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(enemyBoxX, boxY, boxW, boxH);
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 16px monospace';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(combat.enemy.name.toUpperCase(), enemyBoxX + 10, boxY + 25);
+
+        // Enemy HP bar
+        this.drawBar(enemyBoxX + 10, boxY + 35, boxW - 20, 18,
+            combat.enemy.stats.hp, combat.enemy.stats.maxHp, '#f00', '#300', 'HP');
+
+        // Enemy Stamina bar
+        this.drawBar(enemyBoxX + 10, boxY + 58, boxW - 20, 14,
+            combat.enemyStamina, combat.maxEnemyStamina, '#ff0', '#330', 'ST');
+
+        // ========== CENTER ARENA ==========
+        const arenaY = 200;
+
+        // Draw animated sprites
+        const playerSpriteX = centerX - 150;
+        const enemySpriteX = centerX + 100;
+        const spriteY = arenaY + 30;
+
+        // Animation based on phase
+        let playerOffset = 0;
+        let enemyOffset = 0;
+
+        if (combat.phase === CombatPhase.Resolution) {
+            const progress = combat.animationProgress / 60;
+            if (combat.selectedAction === 1 || combat.selectedAction === 4) { // Strike/Heavy
+                playerOffset = Math.sin(progress * Math.PI) * 50;
+            }
+            if (combat.pendingEnemyAction === 1 || combat.pendingEnemyAction === 4) {
+                enemyOffset = -Math.sin(progress * Math.PI) * 50;
             }
         }
 
-        // Draw Player
-        this.ctx.fillStyle = '#00f';
-        this.ctx.fillRect(gridStartX + combat.playerPos.x * cellSize + 5, gridStartY + combat.playerPos.y * cellSize + 5, cellSize - 10, cellSize - 10);
+        // Player sprite
+        this.ctx.fillStyle = '#4af';
+        this.ctx.fillRect(playerSpriteX + playerOffset, spriteY, 50, 80);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '30px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('@', playerSpriteX + 25 + playerOffset, spriteY + 55);
 
-        // Draw Enemy
-        this.ctx.fillStyle = '#f00';
-        this.ctx.fillRect(gridStartX + combat.enemyPos.x * cellSize + 5, gridStartY + combat.enemyPos.y * cellSize + 5, cellSize - 10, cellSize - 10);
+        // Enemy sprite
+        this.ctx.fillStyle = '#f44';
+        this.ctx.fillRect(enemySpriteX + enemyOffset, spriteY, 50, 80);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.fillText('E', enemySpriteX + 25 + enemyOffset, spriteY + 55);
 
-        // Draw Slashes
-        for (const slash of combat.slashes) {
-            this.ctx.strokeStyle = `rgba(255, 255, 255, ${slash.life / 20})`;
-            this.ctx.lineWidth = 3;
-            this.ctx.beginPath();
-            const sx = gridStartX + slash.x * cellSize + cellSize / 2;
-            const sy = gridStartY + slash.y * cellSize + cellSize / 2;
-            const len = 30;
-            this.ctx.moveTo(sx - Math.cos(slash.angle) * len, sy - Math.sin(slash.angle) * len);
-            this.ctx.lineTo(sx + Math.cos(slash.angle) * len, sy + Math.sin(slash.angle) * len);
-            this.ctx.stroke();
+        // Draw effects
+        for (const effect of combat.effects) {
+            const alpha = effect.life / effect.maxLife;
+            this.ctx.fillStyle = effect.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+            this.ctx.font = 'bold 40px monospace';
+            this.ctx.textAlign = 'center';
+
+            if (effect.type === 'hit' || effect.type === 'execute') {
+                this.ctx.fillText('💥', effect.x + enemyOffset, effect.y);
+            } else if (effect.type === 'block') {
+                this.ctx.fillText('🛡️', effect.x, effect.y);
+            } else if (effect.type === 'heal') {
+                this.ctx.fillText('💚', effect.x, effect.y);
+            } else if (effect.type === 'fireball') {
+                this.ctx.fillText('🔥', effect.x, effect.y);
+            } else if (effect.type === 'premonition') {
+                this.ctx.fillText('🔮', effect.x, effect.y);
+            } else if (effect.type === 'clash') {
+                this.ctx.fillText('⚡', effect.x, effect.y);
+            }
         }
 
-        // Draw UI
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '20px monospace';
-        this.ctx.fillText("COMBAT MODE", 20, 40);
-        this.ctx.font = '16px monospace';
-        this.ctx.fillText("[A] Attack  [D] Defend  [S] Dodge", 20, 70);
-        this.ctx.fillText("[1] Heal (10MP)  [2] Fireball (15MP)", 20, 90);
+        // ========== ACTION MENU ==========
+        const menuY = 360;
 
-        // Combat Log
-        let y = this.canvas.height - 20;
-        for (let i = combat.log.length - 1; i >= Math.max(0, combat.log.length - 5); i--) {
-            this.ctx.fillText(combat.log[i], 20, y);
-            y -= 25;
+        this.ctx.fillStyle = 'rgba(30, 30, 40, 0.9)';
+        this.ctx.fillRect(20, menuY, this.canvas.width - 40, 100);
+        this.ctx.strokeStyle = '#666';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(20, menuY, this.canvas.width - 40, 100);
+
+        if (combat.phase === CombatPhase.SelectAction) {
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.font = 'bold 14px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('⟨ SELECT YOUR ACTION ⟩', centerX, menuY + 20);
+
+            // Draw action buttons
+            const actions = [
+                { key: '1', name: 'Strike', cost: '15 ST', color: '#f80' },
+                { key: '2', name: 'Guard', cost: '10 ST', color: '#0af' },
+                { key: '3', name: 'Feint', cost: '20 ST', color: '#0f8' },
+                { key: '4', name: 'Heavy', cost: '30 ST', color: '#f44' },
+                { key: 'Q', name: 'Heal', cost: '12 MP', color: '#0f0' },
+                { key: 'W', name: 'Fireball', cost: '15 MP', color: '#f80' },
+                { key: 'E', name: 'Premonition', cost: '8 MP', color: '#a0f' },
+                { key: 'R', name: 'Execute', cost: '3 Combo', color: '#ff0' },
+            ];
+
+            const btnW = 85;
+            const btnH = 50;
+            const startX = 35;
+
+            for (let i = 0; i < actions.length; i++) {
+                const action = actions[i];
+                const x = startX + (i % 8) * (btnW + 5);
+                const y = menuY + 35;
+
+                // Check if can use
+                let canUse = true;
+                if (action.key === 'R' && combat.comboPoints < combat.maxComboPoints) canUse = false;
+                if (action.cost.includes('ST') && parseInt(action.cost) > combat.playerStamina) canUse = false;
+                if (action.cost.includes('MP') && parseInt(action.cost) > combat.player.stats.mana) canUse = false;
+
+                this.ctx.fillStyle = canUse ? 'rgba(60, 60, 80, 0.9)' : 'rgba(30, 30, 40, 0.5)';
+                this.ctx.fillRect(x, y, btnW, btnH);
+                this.ctx.strokeStyle = canUse ? action.color : '#333';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(x, y, btnW, btnH);
+
+                this.ctx.fillStyle = canUse ? '#fff' : '#555';
+                this.ctx.font = 'bold 11px monospace';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(`[${action.key}] ${action.name}`, x + btnW / 2, y + 20);
+                this.ctx.font = '10px monospace';
+                this.ctx.fillStyle = canUse ? action.color : '#444';
+                this.ctx.fillText(action.cost, x + btnW / 2, y + 38);
+            }
+        } else if (combat.phase === CombatPhase.ShowPremonition) {
+            this.ctx.fillStyle = '#a0f';
+            this.ctx.font = 'bold 18px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('🔮 PREMONITION 🔮', centerX, menuY + 30);
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '16px monospace';
+            const enemyActionName = ACTIONS[combat.enemyIntendedAction]?.name || 'Unknown';
+            this.ctx.fillText(`Enemy will use: ${enemyActionName}`, centerX, menuY + 55);
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '12px monospace';
+            this.ctx.fillText('Press any key to choose your counter...', centerX, menuY + 80);
+        } else if (combat.phase === CombatPhase.Resolution) {
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.font = 'bold 20px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('⚔️ CLASH! ⚔️', centerX, menuY + 50);
+        } else if (combat.phase === CombatPhase.Result && combat.lastResult) {
+            const result = combat.lastResult;
+            const outcomeColor = result.outcome === 'player_wins' ? '#0f0' :
+                result.outcome === 'enemy_wins' ? '#f44' : '#ff0';
+            this.ctx.fillStyle = outcomeColor;
+            this.ctx.font = 'bold 16px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(result.message, centerX, menuY + 40);
+
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '12px monospace';
+            this.ctx.fillText('Press any key to continue...', centerX, menuY + 70);
+        } else if (combat.phase === CombatPhase.Victory) {
+            this.ctx.fillStyle = '#0f0';
+            this.ctx.font = 'bold 24px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('🏆 VICTORY! 🏆', centerX, menuY + 50);
+        } else if (combat.phase === CombatPhase.Defeat) {
+            this.ctx.fillStyle = '#f00';
+            this.ctx.font = 'bold 24px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('💀 DEFEAT 💀', centerX, menuY + 50);
         }
+
+        // ========== COMBAT LOG ==========
+        this.ctx.fillStyle = 'rgba(20, 20, 30, 0.9)';
+        this.ctx.fillRect(20, this.canvas.height - 80, this.canvas.width - 40, 70);
+
+        this.ctx.fillStyle = '#aaa';
+        this.ctx.font = '11px monospace';
+        this.ctx.textAlign = 'left';
+        let logY = this.canvas.height - 65;
+        for (let i = combat.log.length - 1; i >= Math.max(0, combat.log.length - 4); i--) {
+            this.ctx.fillText(combat.log[i], 30, logY);
+            logY += 15;
+        }
+
+        // Reset text align
+        this.ctx.textAlign = 'left';
+    }
+
+    drawBar(x: number, y: number, w: number, h: number, current: number, max: number, fgColor: string, bgColor: string, label: string) {
+        // Background
+        this.ctx.fillStyle = bgColor;
+        this.ctx.fillRect(x, y, w, h);
+
+        // Foreground
+        const percent = Math.max(0, Math.min(1, current / max));
+        this.ctx.fillStyle = fgColor;
+        this.ctx.fillRect(x, y, w * percent, h);
+
+        // Border
+        this.ctx.strokeStyle = '#fff';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(x, y, w, h);
+
+        // Label
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = `${h - 4}px monospace`;
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(`${label}: ${Math.floor(current)}/${max}`, x + 4, y + h - 3);
     }
 
     drawUI(player: Entity, logs: string[], floor: number) {

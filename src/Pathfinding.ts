@@ -1,87 +1,157 @@
 import type { Point } from './utils';
 
-export class PriorityQueue<T> {
-    items: { element: T, priority: number }[] = [];
-
-    enqueue(element: T, priority: number) {
-        const queueElement = { element, priority };
-        let added = false;
-        for (let i = 0; i < this.items.length; i++) {
-            if (queueElement.priority < this.items[i].priority) {
-                this.items.splice(i, 0, queueElement);
-                added = true;
-                break;
-            }
-        }
-        if (!added) {
-            this.items.push(queueElement);
-        }
-    }
-
-    dequeue(): T | undefined {
-        return this.items.shift()?.element;
-    }
-
-    isEmpty(): boolean {
-        return this.items.length === 0;
-    }
+interface AStarNode {
+    x: number;
+    y: number;
+    g: number; // Cost from start
+    h: number; // Heuristic (estimated cost to goal)
+    f: number; // g + h
+    parent: AStarNode | null;
 }
 
-export function aStar(start: Point, goal: Point, isBlocked: (x: number, y: number) => boolean): Point[] {
-    const frontier = new PriorityQueue<Point>();
-    frontier.enqueue(start, 0);
+// Simple cache for pathfinding results
+const pathCache = new Map<string, { path: Point[], timestamp: number }>();
+const CACHE_TTL = 500; // Cache paths for 500ms
+const MAX_ITERATIONS = 500; // Limit iterations to prevent long computations
 
-    const cameFrom = new Map<string, Point | null>();
-    const costSoFar = new Map<string, number>();
+function getCacheKey(start: Point, end: Point): string {
+    return `${start.x},${start.y}-${end.x},${end.y}`;
+}
 
-    const startKey = `${start.x},${start.y}`;
-    cameFrom.set(startKey, null);
-    costSoFar.set(startKey, 0);
+function heuristic(a: Point, b: Point): number {
+    // Manhattan distance
+    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
 
-    let current: Point | undefined;
+export function aStar(
+    start: Point,
+    end: Point,
+    isBlocked: (x: number, y: number) => boolean
+): Point[] {
+    // Check cache first
+    const cacheKey = getCacheKey(start, end);
+    const cached = pathCache.get(cacheKey);
+    const now = Date.now();
 
-    while (!frontier.isEmpty()) {
-        current = frontier.dequeue();
-        if (!current) break;
+    if (cached && (now - cached.timestamp) < CACHE_TTL) {
+        return cached.path;
+    }
 
-        if (current.x === goal.x && current.y === goal.y) {
-            break;
-        }
+    // Quick distance check - if too far, don't bother with expensive pathfinding
+    const quickDist = heuristic(start, end);
+    if (quickDist > 30) {
+        // Return simple path toward target for long distances
+        return [start];
+    }
 
-        const neighbors = [
-            { x: current.x + 1, y: current.y },
-            { x: current.x - 1, y: current.y },
-            { x: current.x, y: current.y + 1 },
-            { x: current.x, y: current.y - 1 }
-        ];
+    const openSet: AStarNode[] = [];
+    const closedSet = new Set<string>();
 
-        for (const next of neighbors) {
-            if (isBlocked(next.x, next.y)) continue;
+    const startNode: AStarNode = {
+        x: start.x,
+        y: start.y,
+        g: 0,
+        h: heuristic(start, end),
+        f: heuristic(start, end),
+        parent: null
+    };
 
-            const nextKey = `${next.x},${next.y}`;
-            const newCost = (costSoFar.get(`${current.x},${current.y}`) || 0) + 1;
+    openSet.push(startNode);
 
-            if (!costSoFar.has(nextKey) || newCost < (costSoFar.get(nextKey) || Infinity)) {
-                costSoFar.set(nextKey, newCost);
-                const priority = newCost + Math.abs(goal.x - next.x) + Math.abs(goal.y - next.y);
-                frontier.enqueue(next, priority);
-                cameFrom.set(nextKey, current);
+    const directions = [
+        { dx: 0, dy: -1 },  // up
+        { dx: 0, dy: 1 },   // down
+        { dx: -1, dy: 0 },  // left
+        { dx: 1, dy: 0 }    // right
+    ];
+
+    let iterations = 0;
+
+    while (openSet.length > 0 && iterations < MAX_ITERATIONS) {
+        iterations++;
+
+        // Find node with lowest f score
+        let lowestIndex = 0;
+        for (let i = 1; i < openSet.length; i++) {
+            if (openSet[i].f < openSet[lowestIndex].f) {
+                lowestIndex = i;
             }
         }
+
+        const current = openSet[lowestIndex];
+
+        // Found the goal
+        if (current.x === end.x && current.y === end.y) {
+            const path: Point[] = [];
+            let node: AStarNode | null = current;
+            while (node) {
+                path.unshift({ x: node.x, y: node.y });
+                node = node.parent;
+            }
+
+            // Cache the result
+            pathCache.set(cacheKey, { path, timestamp: now });
+
+            // Clean old cache entries periodically
+            if (pathCache.size > 100) {
+                for (const [key, value] of pathCache.entries()) {
+                    if (now - value.timestamp > CACHE_TTL * 2) {
+                        pathCache.delete(key);
+                    }
+                }
+            }
+
+            return path;
+        }
+
+        // Move current from open to closed
+        openSet.splice(lowestIndex, 1);
+        closedSet.add(`${current.x},${current.y}`);
+
+        // Check all neighbors
+        for (const dir of directions) {
+            const nx = current.x + dir.dx;
+            const ny = current.y + dir.dy;
+            const key = `${nx},${ny}`;
+
+            // Skip if in closed set or blocked
+            if (closedSet.has(key) || isBlocked(nx, ny)) {
+                continue;
+            }
+
+            const g = current.g + 1;
+            const h = heuristic({ x: nx, y: ny }, end);
+            const f = g + h;
+
+            // Check if already in open set with better score
+            const existingIndex = openSet.findIndex(n => n.x === nx && n.y === ny);
+            if (existingIndex !== -1) {
+                if (g < openSet[existingIndex].g) {
+                    openSet[existingIndex].g = g;
+                    openSet[existingIndex].f = f;
+                    openSet[existingIndex].parent = current;
+                }
+                continue;
+            }
+
+            openSet.push({
+                x: nx,
+                y: ny,
+                g,
+                h,
+                f,
+                parent: current
+            });
+        }
     }
 
-    // Reconstruct path
-    const path: Point[] = [];
-    if (!current || (current.x !== goal.x || current.y !== goal.y)) {
-        return []; // No path found
-    }
+    // No path found (or too many iterations)
+    const emptyPath = [start];
+    pathCache.set(cacheKey, { path: emptyPath, timestamp: now });
+    return emptyPath;
+}
 
-    let curr: Point | null | undefined = current;
-    while (curr) {
-        path.push(curr);
-        const key: string = `${curr.x},${curr.y}`;
-        curr = cameFrom.get(key);
-    }
-
-    return path.reverse().slice(1); // Remove start node
+// Clear the path cache (useful when map changes)
+export function clearPathCache(): void {
+    pathCache.clear();
 }

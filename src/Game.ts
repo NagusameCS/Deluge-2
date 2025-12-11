@@ -3,8 +3,8 @@ import { Player, Enemy, Item, DungeonCore, Entity } from './Entity';
 import { Renderer } from './Renderer';
 import { InputHandler } from './Input';
 import { MAP_WIDTH, MAP_HEIGHT, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from './utils';
-import { CombatSystem, CombatAction } from './Combat';
-import { aStar } from './Pathfinding';
+import { CombatSystem, CombatPhase } from './Combat';
+import { aStar, clearPathCache } from './Pathfinding';
 
 export const GameState = {
     Map: 0,
@@ -52,6 +52,9 @@ export class Game {
     generateLevel() {
         this.map = new GameMap(MAP_WIDTH, MAP_HEIGHT);
         this.map.generate();
+
+        // Clear pathfinding cache when generating a new level
+        clearPathCache();
 
         // Place player in the first room
         const startRoom = this.map.rooms[0];
@@ -166,18 +169,8 @@ export class Game {
         }
 
         if (this.state === GameState.Combat && this.combatSystem) {
-            let action: CombatAction | null = null;
-            let skillIndex: number | undefined;
-
-            if (key === 'a') action = CombatAction.Attack;
-            if (key === 'd') action = CombatAction.Defend;
-            if (key === 's') action = CombatAction.Dodge;
-            if (key === '1') { action = CombatAction.Skill; skillIndex = 0; }
-            if (key === '2') { action = CombatAction.Skill; skillIndex = 1; }
-
-            if (action !== null) {
-                this.combatSystem.handleInput(action, skillIndex);
-            }
+            // Pass all keys directly to the new combat system
+            this.combatSystem.handleInput(key);
             return;
         }
 
@@ -188,9 +181,11 @@ export class Game {
         if (key === 'ArrowLeft' || key === 'a') dx = -1;
         if (key === 'ArrowRight' || key === 'd') dx = 1;
 
-        // Skills (Only in map mode for now, maybe add to combat later)
-        if (key === '1') this.useSkill(0);
-        if (key === '2') this.useSkill(1);
+        // Skills (Only in map mode)
+        if (this.state === GameState.Map) {
+            if (key === '1') this.useSkill(0);
+            if (key === '2') this.useSkill(1);
+        }
 
         if (dx !== 0 || dy !== 0) {
             const destX = this.player.x + dx;
@@ -348,27 +343,23 @@ export class Game {
                 const dist = Math.abs(enemy.x - this.player.x) + Math.abs(enemy.y - this.player.y);
 
                 if (dist < 15) {
-                    // Throttle pathfinding: only every few turns or if path is empty/blocked
-                    // For now, just run it but with the distance check it should be faster.
-                    // Also, maybe cache the path?
-
-                    // Simple optimization: if adjacent, attack (already handled above? No, this is movement)
-                    // Wait, attack logic is:
-                    // if (distance === 1) attack
-                    // else move
-
                     if (dist === 1) {
                         this.attack(enemy, this.player);
                     } else {
-                        const path = aStar({ x: enemy.x, y: enemy.y }, { x: this.player.x, y: this.player.y }, (x, y) => this.map.isBlocked(x, y));
-                        if (path.length > 1) { // path[0] is current pos
-                            const nextStep = path[1];
-                            // Don't move into player (combat trigger is player -> enemy)
-                            if (nextStep.x !== this.player.x || nextStep.y !== this.player.y) {
-                                // Check for other enemies
-                                if (!this.enemies.some(e => e.x === nextStep.x && e.y === nextStep.y)) {
-                                    enemy.x = nextStep.x;
-                                    enemy.y = nextStep.y;
+                        // Throttle pathfinding: only compute path every few turns per enemy
+                        // Use turnCounter and enemy position as a simple hash to stagger updates
+                        const enemyHash = (enemy.x * 31 + enemy.y) % 3;
+                        if ((this.turnCounter + enemyHash) % 2 === 0) {
+                            const path = aStar({ x: enemy.x, y: enemy.y }, { x: this.player.x, y: this.player.y }, (x, y) => this.map.isBlocked(x, y));
+                            if (path.length > 1) { // path[0] is current pos
+                                const nextStep = path[1];
+                                // Don't move into player (combat trigger is player -> enemy)
+                                if (nextStep.x !== this.player.x || nextStep.y !== this.player.y) {
+                                    // Check for other enemies
+                                    if (!this.enemies.some(e => e.x === nextStep.x && e.y === nextStep.y)) {
+                                        enemy.x = nextStep.x;
+                                        enemy.y = nextStep.y;
+                                    }
                                 }
                             }
                         }
@@ -391,14 +382,18 @@ export class Game {
     update() {
         if (this.state === GameState.Combat && this.combatSystem) {
             this.combatSystem.update();
-            if (this.combatSystem.enemy.isDead) {
+
+            // Check for combat end conditions
+            if (this.combatSystem.phase === CombatPhase.Victory) {
                 this.handleEnemyDeath(this.combatSystem.enemy);
                 this.combatSystem.endCombat();
+                this.combatSystem = null;
                 this.state = GameState.Map;
-            } else if (this.player.isDead) {
+            } else if (this.combatSystem.phase === CombatPhase.Defeat || this.player.isDead) {
                 this.log("You died in combat!");
                 this.combatSystem.endCombat();
-                this.state = GameState.Map; // Or Game Over state
+                this.combatSystem = null;
+                this.state = GameState.Map;
                 localStorage.removeItem('deluge2_save');
             }
         }
