@@ -1,7 +1,8 @@
 import { GameMap } from './Map';
-import { Entity, Item, Trap, Player } from './Entity';
+import { Entity, Item, Trap, Player, DungeonCore } from './Entity';
 import { TILE_SIZE, TileType, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from './utils';
 import { CombatSystem, CombatPhase, ACTIONS } from './Combat';
+import { Chest, RARITY_COLORS, RARITY_NAMES, CRAFTING_RECIPES, MATERIALS } from './Equipment';
 
 export class Renderer {
     canvas: HTMLCanvasElement;
@@ -197,7 +198,7 @@ export class Renderer {
         this.ctx.fillStyle = '#fff';
         this.ctx.font = 'bold 24px monospace';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(`⚔️ COMBAT - Turn ${combat.turn}`, centerX, 35);
+        this.ctx.fillText(`-- COMBAT - Turn ${combat.turn} --`, centerX, 35);
 
         // ========== COMBATANT DISPLAY ==========
         const playerBoxX = 80;
@@ -290,10 +291,10 @@ export class Renderer {
         this.ctx.fillText('@', playerSpriteX + 25 + playerOffset, spriteY + 55);
 
         // Enemy sprite
-        this.ctx.fillStyle = '#f44';
+        this.ctx.fillStyle = combat.enemy.color;
         this.ctx.fillRect(enemySpriteX + enemyOffset, spriteY, 50, 80);
         this.ctx.fillStyle = '#fff';
-        this.ctx.fillText('E', enemySpriteX + 25 + enemyOffset, spriteY + 55);
+        this.ctx.fillText(combat.enemy.char, enemySpriteX + 25 + enemyOffset, spriteY + 55);
 
         // Draw effects
         for (const effect of combat.effects) {
@@ -303,17 +304,17 @@ export class Renderer {
             this.ctx.textAlign = 'center';
 
             if (effect.type === 'hit' || effect.type === 'execute') {
-                this.ctx.fillText('💥', effect.x + enemyOffset, effect.y);
+                this.ctx.fillText('*HIT*', effect.x + enemyOffset, effect.y);
             } else if (effect.type === 'block') {
-                this.ctx.fillText('🛡️', effect.x, effect.y);
+                this.ctx.fillText('[O]', effect.x, effect.y);
             } else if (effect.type === 'heal') {
-                this.ctx.fillText('💚', effect.x, effect.y);
+                this.ctx.fillText('+HP', effect.x, effect.y);
             } else if (effect.type === 'fireball') {
-                this.ctx.fillText('🔥', effect.x, effect.y);
+                this.ctx.fillText('~*~', effect.x, effect.y);
             } else if (effect.type === 'premonition') {
-                this.ctx.fillText('🔮', effect.x, effect.y);
+                this.ctx.fillText('(o)', effect.x, effect.y);
             } else if (effect.type === 'clash') {
-                this.ctx.fillText('⚡', effect.x, effect.y);
+                this.ctx.fillText('><', effect.x, effect.y);
             }
         }
 
@@ -330,7 +331,7 @@ export class Renderer {
             this.ctx.fillStyle = '#ff0';
             this.ctx.font = 'bold 14px monospace';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('⟨ SELECT YOUR ACTION ⟩', centerX, menuY + 20);
+            this.ctx.fillText('[ SELECT YOUR ACTION ]', centerX, menuY + 20);
 
             // Draw action buttons
             const actions = [
@@ -377,7 +378,7 @@ export class Renderer {
             this.ctx.fillStyle = '#a0f';
             this.ctx.font = 'bold 18px monospace';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('🔮 PREMONITION 🔮', centerX, menuY + 30);
+            this.ctx.fillText('** PREMONITION **', centerX, menuY + 30);
             this.ctx.fillStyle = '#fff';
             this.ctx.font = '16px monospace';
             const enemyActionName = ACTIONS[combat.enemyIntendedAction]?.name || 'Unknown';
@@ -389,7 +390,7 @@ export class Renderer {
             this.ctx.fillStyle = '#ff0';
             this.ctx.font = 'bold 20px monospace';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('⚔️ CLASH! ⚔️', centerX, menuY + 50);
+            this.ctx.fillText('** CLASH! **', centerX, menuY + 50);
         } else if (combat.phase === CombatPhase.Result && combat.lastResult) {
             const result = combat.lastResult;
             const outcomeColor = result.outcome === 'player_wins' ? '#0f0' :
@@ -406,12 +407,12 @@ export class Renderer {
             this.ctx.fillStyle = '#0f0';
             this.ctx.font = 'bold 24px monospace';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('🏆 VICTORY! 🏆', centerX, menuY + 50);
+            this.ctx.fillText('** VICTORY! **', centerX, menuY + 50);
         } else if (combat.phase === CombatPhase.Defeat) {
             this.ctx.fillStyle = '#f00';
             this.ctx.font = 'bold 24px monospace';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('💀 DEFEAT 💀', centerX, menuY + 50);
+            this.ctx.fillText('** DEFEAT **', centerX, menuY + 50);
         }
 
         // ========== COMBAT LOG ==========
@@ -454,20 +455,63 @@ export class Renderer {
     }
 
     drawUI(player: Entity, logs: string[], floor: number) {
+        // Top bar background
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        this.ctx.fillRect(0, 0, this.canvas.width, 50);
+
         this.ctx.fillStyle = 'white';
-        this.ctx.font = '16px monospace';
-        this.ctx.fillText(`Floor: ${floor}  HP: ${player.stats.hp}/${player.stats.maxHp}  Mana: ${player.stats.mana}/${player.stats.maxMana}  Lvl: ${player.stats.level}  XP: ${player.stats.xp}`, 10, 20);
+        this.ctx.font = '14px monospace';
+
+        // Left side: Floor and level
+        this.ctx.fillText(`Floor: ${floor}  Lvl: ${player.stats.level}`, 10, 18);
+
+        // XP bar with progress (if player has getXpForNextLevel)
+        const p = player as Player;
+        if (p.getXpForNextLevel) {
+            const xpNeeded = p.getXpForNextLevel();
+            const xpPercent = player.stats.xp / xpNeeded;
+            this.ctx.fillText(`XP: ${player.stats.xp}/${xpNeeded}`, 10, 38);
+            // Mini XP bar
+            this.ctx.fillStyle = '#333';
+            this.ctx.fillRect(130, 28, 100, 12);
+            this.ctx.fillStyle = '#0af';
+            this.ctx.fillRect(130, 28, 100 * xpPercent, 12);
+            this.ctx.strokeStyle = '#666';
+            this.ctx.strokeRect(130, 28, 100, 12);
+        }
+
+        // Center: HP and Mana bars
+        const barX = 260;
+        this.ctx.fillStyle = 'white';
+        this.ctx.fillText('HP:', barX, 18);
+        this.drawBar(barX + 30, 6, 100, 14, player.stats.hp, player.stats.maxHp, '#0f0', '#300', '');
+        this.ctx.fillText('MP:', barX, 38);
+        this.drawBar(barX + 30, 26, 100, 14, player.stats.mana, player.stats.maxMana, '#00f', '#003', '');
+
+        // Right side: Stats
+        this.ctx.fillStyle = 'white';
+        this.ctx.fillText(`ATK: ${player.stats.attack}  DEF: ${player.stats.defense}`, 420, 18);
+
+        // Controls hint
+        this.ctx.fillStyle = '#666';
+        this.ctx.font = '11px monospace';
+        this.ctx.fillText('[TAB] Stats  [I] Equip  [C] Craft', 420, 38);
 
         // Draw Skills
-        this.ctx.font = '14px monospace';
-        this.ctx.fillText(`Skills: [1] Heal (10 MP)  [2] Fireball (15 MP)`, 10, 40);
+        this.ctx.fillStyle = '#888';
+        this.ctx.font = '12px monospace';
+        this.ctx.fillText(`[1] Heal  [2] Fireball`, 600, 18);
 
-        // Draw logs
-        this.ctx.font = '14px monospace';
-        let y = this.canvas.height - 10;
-        for (let i = logs.length - 1; i >= Math.max(0, logs.length - 5); i--) {
+        // Draw logs at bottom
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        this.ctx.fillRect(0, this.canvas.height - 80, this.canvas.width, 80);
+
+        this.ctx.fillStyle = '#ccc';
+        this.ctx.font = '12px monospace';
+        let y = this.canvas.height - 65;
+        for (let i = logs.length - 1; i >= Math.max(0, logs.length - 4); i--) {
             this.ctx.fillText(logs[i], 10, y);
-            y -= 20;
+            y += 16;
         }
     }
 
@@ -491,5 +535,592 @@ export class Renderer {
         this.ctx.fillText(`[2] Max Mana (+10) : ${player.stats.maxMana}`, x, y); y += 40;
         this.ctx.fillText(`[3] Attack (+2)    : ${player.stats.attack}`, x, y); y += 40;
         this.ctx.fillText(`[4] Defense (+1)   : ${player.stats.defense}`, x, y); y += 40;
+    }
+
+    drawChest(chest: Chest, map: GameMap, camX: number, camY: number) {
+        if (!map.visible[chest.y][chest.x]) return;
+
+        const screenX = chest.x - camX;
+        const screenY = chest.y - camY;
+
+        if (screenX < 0 || screenX >= VIEWPORT_WIDTH || screenY < 0 || screenY >= VIEWPORT_HEIGHT) return;
+
+        // Draw chest
+        const cx = screenX * TILE_SIZE + TILE_SIZE / 2;
+        const cy = screenY * TILE_SIZE + TILE_SIZE / 2;
+
+        if (chest.opened) {
+            this.ctx.fillStyle = '#654';
+        } else {
+            this.ctx.fillStyle = '#da0';
+        }
+
+        // Chest shape (rectangle)
+        this.ctx.fillRect(cx - 10, cy - 6, 20, 12);
+        this.ctx.strokeStyle = '#420';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(cx - 10, cy - 6, 20, 12);
+
+        // Latch
+        if (!chest.opened) {
+            this.ctx.fillStyle = '#888';
+            this.ctx.fillRect(cx - 2, cy - 2, 4, 4);
+        }
+    }
+
+    drawStats(player: Player, floor: number) {
+        this.ctx.fillStyle = 'rgba(10, 10, 20, 0.95)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 24px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('-- CHARACTER STATS --', this.canvas.width / 2, 40);
+
+        this.ctx.font = '14px monospace';
+        this.ctx.textAlign = 'left';
+        const x = 50;
+        let y = 80;
+        const lineHeight = 22;
+
+        // Basic info
+        this.ctx.fillStyle = '#4af';
+        this.ctx.fillText(`Level: ${player.stats.level}`, x, y); y += lineHeight;
+
+        // XP bar with progress
+        const xpNeeded = player.getXpForNextLevel();
+        const xpPercent = player.stats.xp / xpNeeded;
+        this.ctx.fillText(`XP: ${player.stats.xp} / ${xpNeeded}`, x, y);
+        // Draw XP bar
+        this.ctx.fillStyle = '#333';
+        this.ctx.fillRect(x + 180, y - 12, 200, 14);
+        this.ctx.fillStyle = '#0af';
+        this.ctx.fillRect(x + 180, y - 12, 200 * xpPercent, 14);
+        this.ctx.strokeStyle = '#fff';
+        this.ctx.strokeRect(x + 180, y - 12, 200, 14);
+        y += lineHeight;
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.fillText(`Floor: ${floor}`, x, y); y += lineHeight;
+        this.ctx.fillText(`Gold: ${player.inventory.gold}`, x, y); y += lineHeight * 1.5;
+
+        // Combat stats
+        this.ctx.fillStyle = '#f88';
+        this.ctx.fillText('-- COMBAT --', x, y); y += lineHeight;
+        this.ctx.fillStyle = '#fff';
+        this.ctx.fillText(`HP: ${player.stats.hp} / ${player.stats.maxHp}`, x, y); y += lineHeight;
+        this.ctx.fillText(`Mana: ${player.stats.mana} / ${player.stats.maxMana}`, x, y); y += lineHeight;
+        this.ctx.fillText(`Attack: ${player.stats.attack}`, x, y); y += lineHeight;
+        this.ctx.fillText(`Defense: ${player.stats.defense}`, x, y); y += lineHeight;
+        this.ctx.fillText(`Crit Chance: ${Math.floor(player.stats.critChance * 100)}%`, x, y); y += lineHeight;
+        this.ctx.fillText(`Dodge Chance: ${Math.floor(player.stats.dodgeChance * 100)}%`, x, y); y += lineHeight * 1.5;
+
+        // Special stats (from runes)
+        const x2 = 400;
+        y = 80;
+        this.ctx.fillStyle = '#f80';
+        this.ctx.fillText('-- BONUSES --', x2, y); y += lineHeight;
+        this.ctx.fillStyle = '#fff';
+        if (player.stats.fireDamage > 0) { this.ctx.fillText(`Fire Damage: +${player.stats.fireDamage}`, x2, y); y += lineHeight; }
+        if (player.stats.iceDamage > 0) { this.ctx.fillText(`Ice Damage: +${player.stats.iceDamage}`, x2, y); y += lineHeight; }
+        if (player.stats.lifesteal > 0) { this.ctx.fillText(`Lifesteal: ${Math.floor(player.stats.lifesteal * 100)}%`, x2, y); y += lineHeight; }
+        if (player.stats.thornsDamage > 0) { this.ctx.fillText(`Thorns: ${player.stats.thornsDamage}`, x2, y); y += lineHeight; }
+        if (player.stats.manaOnHit > 0) { this.ctx.fillText(`Mana on Hit: +${player.stats.manaOnHit}`, x2, y); y += lineHeight; }
+        if (player.stats.xpBonus > 0) { this.ctx.fillText(`XP Bonus: +${Math.floor(player.stats.xpBonus * 100)}%`, x2, y); y += lineHeight; }
+        if (player.stats.goldBonus > 0) { this.ctx.fillText(`Gold Bonus: +${Math.floor(player.stats.goldBonus * 100)}%`, x2, y); y += lineHeight; }
+        if (player.stats.poisonChance > 0) { this.ctx.fillText(`Poison Chance: ${Math.floor(player.stats.poisonChance * 100)}%`, x2, y); y += lineHeight; }
+        if (player.stats.stunChance > 0) { this.ctx.fillText(`Stun Chance: ${Math.floor(player.stats.stunChance * 100)}%`, x2, y); y += lineHeight; }
+
+        // Materials
+        y = 260;
+        this.ctx.fillStyle = '#0f0';
+        this.ctx.fillText('-- MATERIALS --', x2, y); y += lineHeight;
+        this.ctx.fillStyle = '#fff';
+        for (const [matType, count] of player.inventory.materials) {
+            if (count > 0) {
+                const mat = MATERIALS[matType];
+                this.ctx.fillStyle = mat.color;
+                this.ctx.fillText(`${mat.name}: ${count}`, x2, y);
+                y += lineHeight;
+            }
+        }
+
+        // Controls hint
+        this.ctx.fillStyle = '#888';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Press [TAB] or [ESC] to close | [I] Equipment | [C] Crafting', this.canvas.width / 2, this.canvas.height - 20);
+    }
+
+    drawEquipment(player: Player, selectedIndex: number, slotCursor: number) {
+        this.ctx.fillStyle = 'rgba(10, 10, 20, 0.95)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 24px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('-- EQUIPMENT --', this.canvas.width / 2, 40);
+
+        // Equipped items (left side)
+        const eqX = 40;
+        let eqY = 80;
+        this.ctx.font = '14px monospace';
+        this.ctx.textAlign = 'left';
+
+        this.ctx.fillStyle = '#ff0';
+        this.ctx.fillText('EQUIPPED:', eqX, eqY); eqY += 25;
+
+        const slots: { key: keyof typeof player.equipped; label: string }[] = [
+            { key: 'weapon', label: 'Weapon' },
+            { key: 'armor', label: 'Armor' },
+            { key: 'helmet', label: 'Helmet' },
+            { key: 'boots', label: 'Boots' },
+            { key: 'accessory', label: 'Accessory' }
+        ];
+
+        slots.forEach((slot, i) => {
+            const item = player.equipped[slot.key];
+            const selected = slotCursor === i;
+
+            this.ctx.fillStyle = selected ? '#ff0' : '#888';
+            this.ctx.fillText(`${selected ? '>' : ' '} ${slot.label}:`, eqX, eqY);
+
+            if (item) {
+                this.ctx.fillStyle = RARITY_COLORS[item.rarity];
+                this.ctx.fillText(item.name, eqX + 100, eqY);
+            } else {
+                this.ctx.fillStyle = '#444';
+                this.ctx.fillText('(empty)', eqX + 100, eqY);
+            }
+            eqY += 22;
+        });
+
+        this.ctx.fillStyle = '#888';
+        this.ctx.fillText('[U] Unequip selected slot', eqX, eqY + 20);
+
+        // Inventory (right side)
+        const invX = 350;
+        let invY = 80;
+
+        this.ctx.fillStyle = '#ff0';
+        this.ctx.fillText(`INVENTORY (${player.inventory.equipment.length}/${player.inventory.maxSize}):`, invX, invY);
+        invY += 25;
+
+        if (player.inventory.equipment.length === 0) {
+            this.ctx.fillStyle = '#444';
+            this.ctx.fillText('(empty)', invX, invY);
+        } else {
+            player.inventory.equipment.forEach((item, i) => {
+                const selected = selectedIndex === i;
+                this.ctx.fillStyle = selected ? '#ff0' : '#888';
+                this.ctx.fillText(selected ? '>' : ' ', invX, invY);
+
+                this.ctx.fillStyle = RARITY_COLORS[item.rarity];
+                this.ctx.fillText(item.name, invX + 20, invY);
+
+                // Show slot type
+                this.ctx.fillStyle = '#666';
+                this.ctx.fillText(`(${item.slot})`, invX + 200, invY);
+
+                invY += 18;
+                if (invY > this.canvas.height - 100) return; // Prevent overflow
+            });
+        }
+
+        // Selected item details
+        if (player.inventory.equipment[selectedIndex]) {
+            const item = player.inventory.equipment[selectedIndex];
+            const detY = this.canvas.height - 80;
+
+            this.ctx.fillStyle = 'rgba(40, 40, 60, 0.9)';
+            this.ctx.fillRect(30, detY - 10, this.canvas.width - 60, 60);
+
+            this.ctx.fillStyle = RARITY_COLORS[item.rarity];
+            this.ctx.font = 'bold 14px monospace';
+            this.ctx.fillText(`${RARITY_NAMES[item.rarity]} ${item.name}`, 50, detY + 10);
+
+            this.ctx.fillStyle = '#aaa';
+            this.ctx.font = '12px monospace';
+            this.ctx.fillText(item.description, 50, detY + 30);
+        }
+
+        // Controls hint
+        this.ctx.fillStyle = '#888';
+        this.ctx.font = '12px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('[Arrows] Navigate | [Enter/E] Equip | [U] Unequip | [ESC/I] Close', this.canvas.width / 2, this.canvas.height - 15);
+    }
+
+    drawCrafting(player: Player, selectedIndex: number) {
+        this.ctx.fillStyle = 'rgba(10, 10, 20, 0.95)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 24px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('-- CRAFTING --', this.canvas.width / 2, 40);
+
+        // Recipes list
+        const recX = 40;
+        let recY = 80;
+        this.ctx.font = '14px monospace';
+        this.ctx.textAlign = 'left';
+
+        this.ctx.fillStyle = '#ff0';
+        this.ctx.fillText('RECIPES:', recX, recY); recY += 25;
+
+        CRAFTING_RECIPES.forEach((recipe, i) => {
+            const selected = selectedIndex === i;
+
+            // Check if can craft
+            let canCraft = true;
+            for (const mat of recipe.materials) {
+                if (player.getMaterialCount(mat.type) < mat.count) {
+                    canCraft = false;
+                    break;
+                }
+            }
+
+            this.ctx.fillStyle = selected ? '#ff0' : (canCraft ? '#0f0' : '#666');
+            this.ctx.fillText(selected ? '>' : ' ', recX, recY);
+            this.ctx.fillText(recipe.name, recX + 20, recY);
+
+            recY += 20;
+        });
+
+        // Selected recipe details
+        if (CRAFTING_RECIPES[selectedIndex]) {
+            const recipe = CRAFTING_RECIPES[selectedIndex];
+            const detX = 350;
+            let detY = 80;
+
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.fillText('REQUIRED MATERIALS:', detX, detY); detY += 25;
+
+            for (const mat of recipe.materials) {
+                const matInfo = MATERIALS[mat.type];
+                const have = player.getMaterialCount(mat.type);
+                const enough = have >= mat.count;
+
+                this.ctx.fillStyle = enough ? '#0f0' : '#f00';
+                this.ctx.fillText(`${matInfo.name}: ${have}/${mat.count}`, detX, detY);
+                detY += 20;
+            }
+
+            detY += 20;
+            this.ctx.fillStyle = '#aaa';
+            this.ctx.fillText(`Creates: ${RARITY_NAMES[recipe.resultRarity]} ${recipe.resultSlot}`, detX, detY);
+        }
+
+        // Player materials
+        const matX = 350;
+        let matY = 250;
+        this.ctx.fillStyle = '#0f0';
+        this.ctx.fillText('YOUR MATERIALS:', matX, matY); matY += 25;
+
+        for (const [matType, count] of player.inventory.materials) {
+            if (count > 0) {
+                const mat = MATERIALS[matType];
+                this.ctx.fillStyle = mat.color;
+                this.ctx.fillText(`${mat.name}: ${count}`, matX, matY);
+                matY += 18;
+            }
+        }
+
+        // Controls hint
+        this.ctx.fillStyle = '#888';
+        this.ctx.font = '12px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('[Up/Down] Select | [Enter/C] Craft | [ESC] Close', this.canvas.width / 2, this.canvas.height - 15);
+    }
+
+    drawPuzzle(core: DungeonCore) {
+        this.ctx.fillStyle = 'rgba(10, 5, 20, 0.95)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const centerX = this.canvas.width / 2;
+
+        this.ctx.fillStyle = '#0ff';
+        this.ctx.font = 'bold 24px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('-- DUNGEON CORE PUZZLE --', centerX, 40);
+
+        const puzzle = core.puzzleData;
+
+        if (core.puzzleType === 'sequence') {
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '16px monospace';
+
+            if (puzzle.showingSequence) {
+                this.ctx.fillText('Memorize the sequence:', centerX, 100);
+
+                // Show the sequence with highlighting
+                const seqY = 150;
+                for (let i = 0; i < puzzle.sequence.length; i++) {
+                    const x = centerX - (puzzle.sequence.length * 40) / 2 + i * 40;
+                    const isCurrentShow = i <= puzzle.showIndex;
+
+                    this.ctx.fillStyle = isCurrentShow ? ['#f00', '#0f0', '#00f', '#ff0'][puzzle.sequence[i] - 1] : '#333';
+                    this.ctx.fillRect(x, seqY, 30, 30);
+
+                    this.ctx.fillStyle = '#fff';
+                    this.ctx.font = '20px monospace';
+                    this.ctx.fillText(String(puzzle.sequence[i]), x + 15, seqY + 22);
+                }
+
+                this.ctx.fillStyle = '#888';
+                this.ctx.font = '14px monospace';
+                this.ctx.fillText('Press any key when ready to input...', centerX, 220);
+            } else {
+                this.ctx.fillText('Enter the sequence:', centerX, 100);
+                this.ctx.fillText(`Progress: ${puzzle.currentIndex} / ${puzzle.sequence.length}`, centerX, 130);
+
+                // Input buttons
+                const btnY = 180;
+                const colors = ['#f00', '#0f0', '#00f', '#ff0'];
+                for (let i = 1; i <= 4; i++) {
+                    const x = centerX - 100 + (i - 1) * 60;
+                    this.ctx.fillStyle = colors[i - 1];
+                    this.ctx.fillRect(x, btnY, 50, 50);
+                    this.ctx.fillStyle = '#fff';
+                    this.ctx.font = 'bold 24px monospace';
+                    this.ctx.fillText(String(i), x + 25, btnY + 35);
+                }
+
+                this.ctx.fillStyle = '#888';
+                this.ctx.font = '14px monospace';
+                this.ctx.fillText('Press [1-4] to input sequence', centerX, 280);
+            }
+        } else if (core.puzzleType === 'match') {
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '16px monospace';
+            this.ctx.fillText('Match the pairs:', centerX, 100);
+            this.ctx.fillText(`Matches: ${puzzle.matchesMade} / ${puzzle.matchesNeeded}`, centerX, 130);
+
+            // Draw cards in 2x4 grid
+            const cardW = 60;
+            const cardH = 80;
+            const startX = centerX - cardW * 2;
+            const startY = 160;
+
+            for (let i = 0; i < 8; i++) {
+                const card = puzzle.cards[i];
+                const col = i % 4;
+                const row = Math.floor(i / 4);
+                const x = startX + col * (cardW + 10);
+                const y = startY + row * (cardH + 10);
+
+                if (card.matched) {
+                    this.ctx.fillStyle = '#040';
+                } else if (card.revealed) {
+                    this.ctx.fillStyle = '#448';
+                } else {
+                    this.ctx.fillStyle = '#224';
+                }
+                this.ctx.fillRect(x, y, cardW, cardH);
+                this.ctx.strokeStyle = '#fff';
+                this.ctx.strokeRect(x, y, cardW, cardH);
+
+                // Card number
+                this.ctx.fillStyle = '#888';
+                this.ctx.font = '12px monospace';
+                this.ctx.fillText(String(i + 1), x + 5, y + 15);
+
+                // Card symbol
+                if (card.revealed || card.matched) {
+                    this.ctx.fillStyle = card.matched ? '#0f0' : '#ff0';
+                    this.ctx.font = 'bold 30px monospace';
+                    this.ctx.fillText(card.symbol, x + cardW / 2, y + cardH / 2 + 10);
+                }
+            }
+
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText('Press [1-8] to reveal cards', centerX, 380);
+        } else if (core.puzzleType === 'memory') {
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '16px monospace';
+
+            if (puzzle.showingPattern) {
+                this.ctx.fillText('Memorize the pattern:', centerX, 100);
+                this.ctx.fillText(`Time: ${Math.ceil(puzzle.showTimer / 60)}s`, centerX, 130);
+            } else {
+                this.ctx.fillText('Recreate the pattern:', centerX, 100);
+            }
+
+            // Draw 3x3 grid
+            const cellSize = 60;
+            const gridStartX = centerX - cellSize * 1.5;
+            const gridStartY = 160;
+
+            for (let gy = 0; gy < 3; gy++) {
+                for (let gx = 0; gx < 3; gx++) {
+                    const x = gridStartX + gx * cellSize;
+                    const y = gridStartY + gy * cellSize;
+                    const idx = gy * 3 + gx + 1;
+
+                    let filled = false;
+                    if (puzzle.showingPattern) {
+                        filled = puzzle.pattern[gy][gx];
+                    } else {
+                        filled = puzzle.playerPattern[gy][gx];
+                    }
+
+                    this.ctx.fillStyle = filled ? '#0af' : '#223';
+                    this.ctx.fillRect(x, y, cellSize - 4, cellSize - 4);
+                    this.ctx.strokeStyle = '#fff';
+                    this.ctx.strokeRect(x, y, cellSize - 4, cellSize - 4);
+
+                    // Number
+                    this.ctx.fillStyle = '#666';
+                    this.ctx.font = '12px monospace';
+                    this.ctx.fillText(String(idx), x + 5, y + 15);
+                }
+            }
+
+            if (!puzzle.showingPattern) {
+                this.ctx.fillStyle = '#888';
+                this.ctx.font = '14px monospace';
+                this.ctx.fillText('Press [1-9] to toggle cells, [Enter] to submit', centerX, 360);
+            }
+        }
+
+        // Escape hint
+        this.ctx.fillStyle = '#666';
+        this.ctx.font = '12px monospace';
+        this.ctx.fillText('[ESC] to leave puzzle', centerX, this.canvas.height - 20);
+    }
+
+    drawClassSelection(classes: any[], selectedIndex: number) {
+        // Dark background
+        this.ctx.fillStyle = '#0a0a15';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const centerX = this.canvas.width / 2;
+
+        // Title
+        this.ctx.fillStyle = '#4af';
+        this.ctx.font = 'bold 28px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('SELECT YOUR CLASS', centerX, 60);
+
+        // Subtitle
+        this.ctx.fillStyle = '#888';
+        this.ctx.font = '14px monospace';
+        this.ctx.fillText('Use [W/S] or arrows to navigate, [Enter] to select', centerX, 90);
+
+        // Draw class options
+        const startY = 130;
+        const boxHeight = 80;
+        const boxWidth = 500;
+        const boxX = centerX - boxWidth / 2;
+
+        classes.forEach((cls, index) => {
+            const y = startY + index * (boxHeight + 15);
+            const isSelected = index === selectedIndex;
+
+            // Box background
+            this.ctx.fillStyle = isSelected ? 'rgba(68, 170, 255, 0.3)' : 'rgba(30, 30, 50, 0.8)';
+            this.ctx.fillRect(boxX, y, boxWidth, boxHeight);
+
+            // Border
+            this.ctx.strokeStyle = isSelected ? '#4af' : '#444';
+            this.ctx.lineWidth = isSelected ? 3 : 1;
+            this.ctx.strokeRect(boxX, y, boxWidth, boxHeight);
+
+            // Draw sprite preview (8x8 scaled to 48x48)
+            if (cls.pixels) {
+                const spriteX = boxX + 20;
+                const spriteY = y + 16;
+                const pixelSize = 6;
+                for (let py = 0; py < 8; py++) {
+                    for (let px = 0; px < 8; px++) {
+                        const color = cls.pixels[py]?.[px];
+                        if (color && color !== 'transparent') {
+                            this.ctx.fillStyle = color;
+                            this.ctx.fillRect(spriteX + px * pixelSize, spriteY + py * pixelSize, pixelSize, pixelSize);
+                        }
+                    }
+                }
+            } else {
+                // Fallback: draw char
+                this.ctx.fillStyle = cls.color || '#fff';
+                this.ctx.font = 'bold 40px monospace';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(cls.char || '@', boxX + 44, y + 52);
+            }
+
+            // Class name
+            this.ctx.fillStyle = cls.color || '#fff';
+            this.ctx.font = 'bold 18px monospace';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText(cls.name, boxX + 90, y + 25);
+
+            // Description
+            this.ctx.fillStyle = '#aaa';
+            this.ctx.font = '12px monospace';
+            const desc = cls.metadata?.description || cls.description || 'No description';
+            this.ctx.fillText(desc.substring(0, 50), boxX + 90, y + 45);
+
+            // Stats
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '11px monospace';
+            const stats = cls.stats;
+            if (stats) {
+                const statLine = `HP:${stats.baseHp} MP:${stats.baseMana} ATK:${stats.baseAttack} DEF:${stats.baseDefense}`;
+                this.ctx.fillText(statLine, boxX + 90, y + 65);
+            }
+
+            // Selection indicator
+            if (isSelected) {
+                this.ctx.fillStyle = '#4af';
+                this.ctx.font = 'bold 20px monospace';
+                this.ctx.textAlign = 'right';
+                this.ctx.fillText('>', boxX - 10, y + boxHeight / 2 + 8);
+            }
+        });
+
+        // Footer
+        this.ctx.fillStyle = '#666';
+        this.ctx.font = '12px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Create custom classes at /editor', centerX, this.canvas.height - 20);
+    }
+
+    drawNotifications(notifications: Array<{ message: string; timestamp: number; duration: number }>) {
+        if (notifications.length === 0) return;
+
+        const now = Date.now();
+        const centerX = this.canvas.width / 2;
+        let y = 120; // Start from top
+
+        this.ctx.textAlign = 'center';
+
+        for (const notif of notifications) {
+            const elapsed = now - notif.timestamp;
+            const remaining = notif.duration - elapsed;
+
+            // Calculate alpha for fade out (fade during last 500ms)
+            let alpha = 1;
+            if (remaining < 500) {
+                alpha = remaining / 500;
+            }
+
+            // Background
+            this.ctx.fillStyle = `rgba(0, 0, 0, ${0.8 * alpha})`;
+            const textWidth = this.ctx.measureText(notif.message).width;
+            this.ctx.fillRect(centerX - textWidth / 2 - 20, y - 20, textWidth + 40, 35);
+
+            // Border
+            this.ctx.strokeStyle = `rgba(68, 170, 255, ${alpha})`;
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeRect(centerX - textWidth / 2 - 20, y - 20, textWidth + 40, 35);
+
+            // Text
+            this.ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            this.ctx.font = 'bold 16px monospace';
+            this.ctx.fillText(notif.message, centerX, y);
+
+            y += 45;
+        }
     }
 }

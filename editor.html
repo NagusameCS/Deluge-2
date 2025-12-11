@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deluge-2 Sprite Editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0f;
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #4af;
+            text-align: center;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #4af;
+        }
+
+        .editor-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            gap: 20px;
+        }
+
+        .panel {
+            background: rgba(20, 20, 30, 0.9);
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .panel h2 {
+            color: #ff0;
+            font-size: 14px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        /* Canvas area */
+        .canvas-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        #spriteCanvas {
+            border: 2px solid #4af;
+            cursor: crosshair;
+            image-rendering: pixelated;
+        }
+
+        .preview-row {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        #previewCanvas {
+            border: 1px solid #666;
+            image-rendering: pixelated;
+        }
+
+        .preview-info {
+            color: #888;
+            font-size: 12px;
+        }
+
+        /* Color palette */
+        .color-palette {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 4px;
+            margin-bottom: 15px;
+        }
+
+        .color-swatch {
+            width: 30px;
+            height: 30px;
+            border: 2px solid #333;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .color-swatch:hover {
+            border-color: #fff;
+        }
+
+        .color-swatch.selected {
+            border-color: #4af;
+            box-shadow: 0 0 8px #4af;
+        }
+
+        .color-swatch.transparent {
+            background: repeating-conic-gradient(#666 0% 25%, #333 0% 50%) 50% / 10px 10px;
+        }
+
+        #customColor {
+            width: 100%;
+            height: 40px;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+
+        /* Form inputs */
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #888;
+            font-size: 11px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 8px;
+            background: #1a1a25;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #4af;
+        }
+
+        .form-group textarea {
+            min-height: 60px;
+            resize: vertical;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        /* Moveset editor */
+        .moveset-list {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+        }
+
+        .moveset-item {
+            background: #1a1a25;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+
+        .moveset-item:hover {
+            border-color: #4af;
+        }
+
+        .moveset-item.selected {
+            border-color: #ff0;
+            background: #252530;
+        }
+
+        .moveset-item .name {
+            color: #4af;
+            font-weight: bold;
+        }
+
+        .moveset-item .cost {
+            color: #888;
+            font-size: 11px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #4af;
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            background: #5bf;
+            box-shadow: 0 0 10px #4af;
+        }
+
+        .btn-secondary {
+            background: #333;
+            color: #fff;
+        }
+
+        .btn-secondary:hover {
+            background: #444;
+        }
+
+        .btn-danger {
+            background: #f44;
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: #f66;
+        }
+
+        .btn-success {
+            background: #0a0;
+            color: #fff;
+        }
+
+        .btn-success:hover {
+            background: #0c0;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* Tools */
+        .tools {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .tool-btn {
+            padding: 8px 12px;
+            background: #222;
+            border: 1px solid #444;
+            color: #fff;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .tool-btn:hover {
+            background: #333;
+        }
+
+        .tool-btn.active {
+            background: #4af;
+            color: #000;
+            border-color: #4af;
+        }
+
+        /* Sprite list */
+        .sprite-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .sprite-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            background: #1a1a25;
+            border: 1px solid #333;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+
+        .sprite-item:hover {
+            border-color: #4af;
+        }
+
+        .sprite-item canvas {
+            image-rendering: pixelated;
+        }
+
+        .sprite-item .info {
+            flex: 1;
+        }
+
+        .sprite-item .name {
+            color: #4af;
+            font-weight: bold;
+        }
+
+        .sprite-item .type {
+            color: #888;
+            font-size: 11px;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #1a1a25;
+            border: 1px solid #4af;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal h3 {
+            color: #4af;
+            margin-bottom: 15px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 15px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: #1a1a25;
+            border: 1px solid #333;
+            color: #888;
+            cursor: pointer;
+        }
+
+        .tab:first-child {
+            border-radius: 4px 0 0 4px;
+        }
+
+        .tab:last-child {
+            border-radius: 0 4px 4px 0;
+        }
+
+        .tab.active {
+            background: #4af;
+            color: #000;
+            border-color: #4af;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Back link */
+        .back-link {
+            display: inline-block;
+            color: #4af;
+            text-decoration: none;
+            margin-bottom: 20px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Drop zone */
+        .drop-zone {
+            border: 2px dashed #444;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            color: #666;
+            margin-bottom: 15px;
+            transition: all 0.2s;
+        }
+
+        .drop-zone.dragover {
+            border-color: #4af;
+            background: rgba(68, 170, 255, 0.1);
+            color: #4af;
+        }
+
+        @media (max-width: 1200px) {
+            .editor-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Game</a>
+        <h1>SPRITE EDITOR</h1>
+
+        <div class="editor-layout">
+            <!-- Left Panel: Sprite List & Tools -->
+            <div class="panel">
+                <h2>SPRITES</h2>
+
+                <div class="drop-zone" id="dropZone">
+                    Drop .sprite files here<br>
+                    <small>or click to import</small>
+                    <input type="file" id="fileInput" accept=".sprite,.json" style="display: none;">
+                </div>
+
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" id="newSpriteBtn">+ New Sprite</button>
+                </div>
+
+                <div class="sprite-list" id="spriteList"></div>
+            </div>
+
+            <!-- Center: Canvas -->
+            <div class="panel canvas-container">
+                <div class="tools">
+                    <button class="tool-btn active" data-tool="draw">Draw</button>
+                    <button class="tool-btn" data-tool="erase">Erase</button>
+                    <button class="tool-btn" data-tool="fill">Fill</button>
+                    <button class="tool-btn" data-tool="pick">Pick Color</button>
+                </div>
+
+                <canvas id="spriteCanvas" width="256" height="256"></canvas>
+
+                <div class="preview-row">
+                    <div>
+                        <div class="preview-info">1x Preview</div>
+                        <canvas id="previewCanvas1x" width="8" height="8"></canvas>
+                    </div>
+                    <div>
+                        <div class="preview-info">4x Preview</div>
+                        <canvas id="previewCanvas4x" width="32" height="32"></canvas>
+                    </div>
+                    <div>
+                        <div class="preview-info">In-Game Size</div>
+                        <canvas id="previewCanvasGame" width="32" height="32"></canvas>
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-secondary" id="clearBtn">Clear</button>
+                    <button class="btn btn-secondary" id="mirrorBtn">Mirror H</button>
+                    <button class="btn btn-secondary" id="rotateBtn">Rotate 90°</button>
+                </div>
+            </div>
+
+            <!-- Right Panel: Properties -->
+            <div class="panel">
+                <div class="tabs">
+                    <div class="tab active" data-tab="meta">Info</div>
+                    <div class="tab" data-tab="stats">Stats</div>
+                    <div class="tab" data-tab="moveset">Moveset</div>
+                </div>
+
+                <!-- Metadata Tab -->
+                <div class="tab-content active" id="tab-meta">
+                    <h2>COLORS</h2>
+                    <div class="color-palette" id="colorPalette"></div>
+                    <input type="color" id="customColor" value="#4af">
+
+                    <h2 style="margin-top: 20px;">METADATA</h2>
+                    <div class="form-group">
+                        <label>Sprite ID</label>
+                        <input type="text" id="spriteId" placeholder="my_sprite">
+                    </div>
+                    <div class="form-group">
+                        <label>Name</label>
+                        <input type="text" id="spriteName" placeholder="My Sprite">
+                    </div>
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select id="spriteType">
+                            <option value="player">Player Class</option>
+                            <option value="enemy">Enemy</option>
+                            <option value="npc">NPC</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea id="spriteDesc" placeholder="A description of this sprite..."></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>ASCII Char</label>
+                            <input type="text" id="spriteChar" maxlength="1" placeholder="@">
+                        </div>
+                        <div class="form-group">
+                            <label>Primary Color</label>
+                            <input type="color" id="spriteColor" value="#4af">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Author</label>
+                        <input type="text" id="spriteAuthor" placeholder="Your name">
+                    </div>
+                </div>
+
+                <!-- Stats Tab -->
+                <div class="tab-content" id="tab-stats">
+                    <h2>BASE STATS</h2>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Base HP</label>
+                            <input type="number" id="statHp" value="50" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Base Mana</label>
+                            <input type="number" id="statMana" value="30" min="0">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Attack</label>
+                            <input type="number" id="statAttack" value="5" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Defense</label>
+                            <input type="number" id="statDefense" value="1" min="0">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Crit Chance %</label>
+                            <input type="number" id="statCrit" value="5" min="0" max="100">
+                        </div>
+                        <div class="form-group">
+                            <label>Dodge Chance %</label>
+                            <input type="number" id="statDodge" value="5" min="0" max="100">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Speed</label>
+                        <input type="number" id="statSpeed" value="5" min="1" max="10">
+                    </div>
+
+                    <h2 style="margin-top: 20px;">ENEMY BEHAVIOR</h2>
+                    <div class="form-group">
+                        <label>AI Pattern</label>
+                        <select id="behaviorPattern">
+                            <option value="aggressive">Aggressive</option>
+                            <option value="defensive">Defensive</option>
+                            <option value="tricky">Tricky</option>
+                            <option value="balanced">Balanced</option>
+                            <option value="fleeing">Fleeing (Golden)</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Aggro Range</label>
+                            <input type="number" id="behaviorAggro" value="8" min="1" max="20">
+                        </div>
+                        <div class="form-group">
+                            <label>Min Floor</label>
+                            <input type="number" id="behaviorMinFloor" value="1" min="1">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="isBoss"> Is Boss
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="isGolden"> Is Golden (5x rewards, flees)
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Moveset Tab -->
+                <div class="tab-content" id="tab-moveset">
+                    <h2>COMBAT MOVES</h2>
+                    <div class="moveset-list" id="movesetList"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" id="addMoveBtn">+ Add Move</button>
+                        <button class="btn btn-danger" id="removeMoveBtn">Remove</button>
+                    </div>
+
+                    <div id="moveEditor" style="margin-top: 15px; display: none;">
+                        <h2>EDIT MOVE</h2>
+                        <div class="form-group">
+                            <label>Move Name</label>
+                            <input type="text" id="moveName" placeholder="Strike">
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <input type="text" id="moveDesc" placeholder="A quick attack">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Stamina Cost</label>
+                                <input type="number" id="moveStamina" value="15" min="0">
+                            </div>
+                            <div class="form-group">
+                                <label>Mana Cost</label>
+                                <input type="number" id="moveMana" value="0" min="0">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Base Damage</label>
+                                <input type="number" id="moveDamage" value="1.0" min="0" step="0.1">
+                            </div>
+                            <div class="form-group">
+                                <label>Speed</label>
+                                <input type="number" id="moveSpeed" value="5" min="1" max="10">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Hotkey</label>
+                                <input type="text" id="moveKey" maxlength="1" placeholder="1">
+                            </div>
+                            <div class="form-group">
+                                <label>Special Effect</label>
+                                <select id="moveSpecial">
+                                    <option value="">None</option>
+                                    <option value="stun">Stun</option>
+                                    <option value="poison">Poison</option>
+                                    <option value="slow">Slow</option>
+                                    <option value="heal">Heal Self</option>
+                                    <option value="buff_attack">Buff Attack</option>
+                                    <option value="restore_mana">Restore Mana</option>
+                                    <option value="crit_boost">Crit Boost</option>
+                                    <option value="dodge_boost">Dodge Boost</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn btn-success" id="saveMoveBtn">Save Move</button>
+                    </div>
+                </div>
+
+                <div class="btn-group" style="margin-top: 20px;">
+                    <button class="btn btn-success" id="saveBtn">Save Sprite</button>
+                    <button class="btn btn-primary" id="exportBtn">Export .sprite</button>
+                    <button class="btn btn-danger" id="deleteBtn">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for move editing -->
+    <div class="modal" id="moveModal">
+        <div class="modal-content">
+            <h3>Edit Move</h3>
+            <!-- Content populated by JS -->
+        </div>
+    </div>
+
+    <script type="module" src="./src/editor.ts"></script>
+</body>
+
+</html>

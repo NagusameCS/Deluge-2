@@ -146,7 +146,7 @@ export class CombatSystem {
         // Generate enemy AI pattern (semi-predictable for skilled players)
         this.generateEnemyPattern();
 
-        this.log.push(`⚔️ Combat with ${enemy.name} begins!`);
+        this.log.push(`-- Combat with ${enemy.name} begins! --`);
         this.log.push(`Tip: Use [E] Premonition to see enemy's next move`);
     }
 
@@ -278,7 +278,7 @@ export class CombatSystem {
         // Reset pattern index since we peeked
         this.enemyPatternIndex--;
 
-        this.log.push(`🔮 Premonition: Enemy intends to use ${ACTIONS[this.enemyIntendedAction].name}!`);
+        this.log.push(`[PREMONITION] Enemy intends to use ${ACTIONS[this.enemyIntendedAction].name}!`);
         this.phase = CombatPhase.ShowPremonition;
 
         this.addEffect('premonition', 400, 240, '#a0f');
@@ -351,7 +351,7 @@ export class CombatSystem {
             enemyDamage = Math.floor(playerBaseDmg * (1 + this.comboPoints * 0.5));
             criticalHit = true;
             this.comboPoints = 0;
-            message = `💥 EXECUTE! Devastating blow for ${enemyDamage} damage!`;
+            message = `** EXECUTE! ** Devastating blow for ${enemyDamage} damage!`;
             outcome = 'player_wins';
             this.addEffect('execute', 600, 200, '#f00');
         }
@@ -359,7 +359,7 @@ export class CombatSystem {
             // Magic damage - partially ignores guard
             const guardReduction = enemyAction === CombatAction.Guard ? 0.5 : 1.0;
             enemyDamage = Math.floor(playerBaseDmg * guardReduction);
-            message = `🔥 Fireball hits for ${enemyDamage} damage!`;
+            message = `[FIRE] Fireball hits for ${enemyDamage} damage!`;
             if (guardReduction < 1) message += ' (Partially blocked)';
             outcome = 'player_wins';
             comboGained = 1;
@@ -526,12 +526,12 @@ export class CombatSystem {
         // Check for combat end
         if (this.enemy.isDead) {
             this.phase = CombatPhase.Victory;
-            this.log.push(`🏆 Victory! ${this.enemy.name} defeated!`);
+            this.log.push(`** Victory! ** ${this.enemy.name} defeated!`);
             return;
         }
         if (this.player.isDead) {
             this.phase = CombatPhase.Defeat;
-            this.log.push(`💀 Defeat! You have fallen...`);
+            this.log.push(`** Defeat! ** You have fallen...`);
             return;
         }
 

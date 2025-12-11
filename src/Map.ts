@@ -131,7 +131,7 @@ export class GameMap {
             const x = getRandomInt(room.x + 1, room.x + room.w - 1);
             const y = getRandomInt(room.y + 1, room.y + room.h - 1);
             if (this.tiles[y][x] === TileType.Floor) {
-                this.traps.push(new Trap(x, y, 'Spike Trap', 10));
+                this.traps.push(new Trap(x, y, 'spike', 1));
             }
         }
     }

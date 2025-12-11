@@ -144,14 +144,18 @@ const RARITY_PREFIXES: Record<Rarity, string[]> = {
 
 let equipmentIdCounter = 0;
 
-export function generateEquipment(slot: EquipSlot, floor: number): Equipment {
-    // Determine rarity based on floor
+export function generateEquipment(slot: EquipSlot, floor: number, forceRarity?: Rarity): Equipment {
+    // Determine rarity based on floor (or use forced rarity)
     let rarity: Rarity = Rarity.Common;
-    const roll = Math.random();
-    if (roll < 0.01 + floor * 0.005) rarity = Rarity.Legendary;
-    else if (roll < 0.05 + floor * 0.01) rarity = Rarity.Epic;
-    else if (roll < 0.15 + floor * 0.02) rarity = Rarity.Rare;
-    else if (roll < 0.35 + floor * 0.03) rarity = Rarity.Uncommon;
+    if (forceRarity !== undefined) {
+        rarity = forceRarity;
+    } else {
+        const roll = Math.random();
+        if (roll < 0.01 + floor * 0.005) rarity = Rarity.Legendary;
+        else if (roll < 0.05 + floor * 0.01) rarity = Rarity.Epic;
+        else if (roll < 0.15 + floor * 0.02) rarity = Rarity.Rare;
+        else if (roll < 0.35 + floor * 0.03) rarity = Rarity.Uncommon;
+    }
 
     // Get base item
     let bases: { name: string; attack: number; defense: number }[];
@@ -319,7 +323,6 @@ export class Chest {
         const gold = getRandomInt(10, 30) * floor;
 
         const materials: { type: MaterialType; count: number }[] = [];
-        const matTypes = Object.values(MaterialType);
         for (let i = 0; i < materialCount; i++) {
             // Weight toward common materials
             let matType: MaterialType;
