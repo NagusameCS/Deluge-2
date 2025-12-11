@@ -4,10 +4,13 @@ import { TILE_SIZE, TileType, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from '
 import { CombatSystem, CombatPhase, ACTIONS, MultiCombatSystem, MultiCombatPhase } from './Combat';
 import { Chest, RARITY_COLORS, RARITY_NAMES, CRAFTING_RECIPES, MATERIALS } from './Equipment';
 import { AssetManager, drawAsset } from './GameAssets';
+import { getBiomeForFloor, type BiomeTheme } from './Biomes';
+import { type DuelState, DuelPhase, DuelAction, type DuelStats, type GameRoom } from './Multiplayer';
 
 export class Renderer {
     canvas: HTMLCanvasElement;
     ctx: CanvasRenderingContext2D;
+    currentBiome: BiomeTheme;
     width: number;
     height: number;
 
@@ -16,6 +19,7 @@ export class Renderer {
         this.ctx = this.canvas.getContext('2d')!;
         this.width = width;
         this.height = height;
+        this.currentBiome = getBiomeForFloor(1);
 
         // Set internal resolution
         this.canvas.width = width * TILE_SIZE;
@@ -26,6 +30,10 @@ export class Renderer {
         window.addEventListener('resize', () => this.resizeCanvas());
 
         this.ctx.font = '12px monospace';
+    }
+
+    setBiome(floor: number) {
+        this.currentBiome = getBiomeForFloor(floor);
     }
 
     resizeCanvas() {
@@ -48,6 +56,8 @@ export class Renderer {
         const camX = Math.max(0, Math.min(map.width - VIEWPORT_WIDTH, playerX - Math.floor(VIEWPORT_WIDTH / 2)));
         const camY = Math.max(0, Math.min(map.height - VIEWPORT_HEIGHT, playerY - Math.floor(VIEWPORT_HEIGHT / 2)));
 
+        const biome = this.currentBiome;
+
         for (let y = 0; y < VIEWPORT_HEIGHT; y++) {
             for (let x = 0; x < VIEWPORT_WIDTH; x++) {
                 const mapX = camX + x;
@@ -61,16 +71,16 @@ export class Renderer {
 
                 if (visible) {
                     if (tile === TileType.Wall) {
-                        this.ctx.fillStyle = '#888'; // Lit wall
+                        this.ctx.fillStyle = biome.wallColor;
                         this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                         // Add depth/shadow
-                        this.ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                        this.ctx.fillStyle = biome.wallShadow;
                         this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE + TILE_SIZE - 4, TILE_SIZE, 4);
                     } else if (tile === TileType.Floor) {
-                        this.ctx.fillStyle = '#222'; // Darker floor for contrast
+                        this.ctx.fillStyle = biome.floorColor;
                         this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                         // Floor texture dot
-                        this.ctx.fillStyle = '#333';
+                        this.ctx.fillStyle = biome.floorAccent;
                         this.ctx.fillRect(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, 2, 2);
                     } else {
                         this.ctx.fillStyle = '#000';
@@ -78,9 +88,10 @@ export class Renderer {
                     }
                 } else if (explored) {
                     if (tile === TileType.Wall) {
-                        this.ctx.fillStyle = '#444'; // Dark wall
+                        // Darken wall color for explored but not visible
+                        this.ctx.fillStyle = this.darkenColor(biome.wallColor, biome.ambientLight);
                     } else if (tile === TileType.Floor) {
-                        this.ctx.fillStyle = '#111'; // Dark floor
+                        this.ctx.fillStyle = biome.fogColor;
                     } else {
                         this.ctx.fillStyle = '#000';
                     }
@@ -93,6 +104,15 @@ export class Renderer {
         }
 
         return { camX, camY };
+    }
+
+    // Helper to darken a hex color
+    private darkenColor(hex: string, factor: number): string {
+        const c = hex.replace('#', '');
+        const r = Math.floor(parseInt(c.substring(0, 2), 16) * factor);
+        const g = Math.floor(parseInt(c.substring(2, 4), 16) * factor);
+        const b = Math.floor(parseInt(c.substring(4, 6), 16) * factor);
+        return `rgb(${r}, ${g}, ${b})`;
     }
 
     drawEntity(entity: Entity, map: GameMap, camX: number, camY: number) {
@@ -253,11 +273,17 @@ export class Renderer {
     }
 
     drawCombat(combat: CombatSystem) {
-        // Draw dark overlay
-        this.ctx.fillStyle = 'rgba(10, 5, 15, 0.95)';
+        // Draw dark overlay with biome color
+        this.ctx.fillStyle = this.currentBiome.combatBgColor;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         const centerX = this.canvas.width / 2;
+
+        // ========== INTRO ANIMATION ==========
+        if (combat.phase === CombatPhase.Intro) {
+            this.drawCombatIntro(combat);
+            return;
+        }
 
         // ========== TITLE BAR ==========
         this.ctx.fillStyle = '#fff';
@@ -513,9 +539,108 @@ export class Renderer {
         this.ctx.textAlign = 'left';
     }
 
+    // Pokemon-style combat intro animation
+    private drawCombatIntro(combat: CombatSystem) {
+        const centerX = this.canvas.width / 2;
+        const centerY = this.canvas.height / 2;
+        const progress = combat.introProgress / 100; // 0 to 1
+
+        // Background flash effect
+        if (progress < 0.2) {
+            const flashAlpha = (1 - progress / 0.2) * 0.8;
+            this.ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+
+        // Diagonal wipe lines (classic pokemon transition)
+        if (progress < 0.3) {
+            const wipeProgress = progress / 0.3;
+            this.ctx.fillStyle = this.currentBiome.combatAccent;
+            for (let i = 0; i < 10; i++) {
+                const offset = (i * 100) - (wipeProgress * 1200);
+                this.ctx.beginPath();
+                this.ctx.moveTo(offset, 0);
+                this.ctx.lineTo(offset + 80, 0);
+                this.ctx.lineTo(offset + 80 + this.canvas.height, this.canvas.height);
+                this.ctx.lineTo(offset + this.canvas.height, this.canvas.height);
+                this.ctx.closePath();
+                this.ctx.fill();
+            }
+        }
+
+        // "VS" text that scales in
+        if (progress > 0.2 && progress < 0.7) {
+            const textProgress = (progress - 0.2) / 0.3;
+            const scale = Math.min(1, textProgress * 1.5);
+            const alpha = progress < 0.5 ? 1 : Math.max(0, 1 - (progress - 0.5) / 0.2);
+
+            this.ctx.save();
+            this.ctx.translate(centerX, centerY - 30);
+            this.ctx.scale(scale, scale);
+            this.ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            this.ctx.font = 'bold 60px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('VS', 0, 0);
+            this.ctx.restore();
+        }
+
+        // Player slides in from left
+        const playerSlideProgress = Math.min(1, progress * 2);
+        const playerX = -100 + (playerSlideProgress * (centerX - 100));
+        const playerY = centerY + 50;
+
+        // Player sprite
+        this.ctx.fillStyle = '#4af';
+        this.ctx.fillRect(playerX - 30, playerY - 50, 60, 100);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 40px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('@', playerX, playerY + 10);
+
+        // Enemy slides in from right
+        const enemySlideProgress = Math.min(1, Math.max(0, progress - 0.1) * 2);
+        const enemyX = this.canvas.width + 100 - (enemySlideProgress * (centerX));
+        const enemyY = centerY + 50;
+
+        // Enemy sprite
+        this.ctx.fillStyle = combat.enemy.color;
+        this.ctx.fillRect(enemyX - 30, enemyY - 50, 60, 100);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.fillText(combat.enemy.char, enemyX, enemyY + 10);
+
+        // Enemy name reveal
+        if (progress > 0.5) {
+            const nameAlpha = Math.min(1, (progress - 0.5) * 4);
+            this.ctx.fillStyle = `rgba(255, 255, 255, ${nameAlpha})`;
+            this.ctx.font = 'bold 24px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(`A wild ${combat.enemy.name} appears!`, centerX, 60);
+
+            // Level indicator
+            this.ctx.font = '16px monospace';
+            this.ctx.fillText(`Level ${combat.enemy.stats.level}`, centerX, 90);
+        }
+
+        // "FIGHT!" text at the end
+        if (progress > 0.8) {
+            const fightAlpha = (progress - 0.8) / 0.2;
+            const fightScale = 1 + Math.sin(fightAlpha * Math.PI * 2) * 0.1;
+
+            this.ctx.save();
+            this.ctx.translate(centerX, this.canvas.height - 80);
+            this.ctx.scale(fightScale, fightScale);
+            this.ctx.fillStyle = `rgba(255, 200, 0, ${fightAlpha})`;
+            this.ctx.font = 'bold 36px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('FIGHT!', 0, 0);
+            this.ctx.restore();
+        }
+    }
+
     drawMultiCombat(combat: MultiCombatSystem) {
-        // Draw dark overlay
-        this.ctx.fillStyle = 'rgba(15, 5, 20, 0.95)';
+        // Draw dark overlay with biome color
+        this.ctx.fillStyle = this.currentBiome.combatBgColor;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         const centerX = this.canvas.width / 2;
@@ -859,6 +984,38 @@ export class Renderer {
             this.ctx.fillText(logs[i], 10, y);
             y += 16;
         }
+    }
+
+    drawReaperWarning(moveCount: number, threshold: number, reaperSpawned: boolean) {
+        // Draw reaper warning/timer at top-right
+        const movesRemaining = threshold - moveCount;
+        const percent = moveCount / threshold;
+
+        this.ctx.save();
+        this.ctx.textAlign = 'right';
+        this.ctx.font = '12px monospace';
+
+        if (reaperSpawned) {
+            // Reaper is active - flash warning
+            const flash = Math.floor(Date.now() / 300) % 2 === 0;
+            this.ctx.fillStyle = flash ? '#ff0000' : '#880088';
+            this.ctx.fillText('☠ REAPER HUNTING ☠', this.canvas.width - 10, 18);
+        } else if (percent >= 0.75) {
+            // Critical warning
+            const flash = Math.floor(Date.now() / 500) % 2 === 0;
+            this.ctx.fillStyle = flash ? '#ff0000' : '#ff8800';
+            this.ctx.fillText(`⚠ REAPER: ${movesRemaining} moves ⚠`, this.canvas.width - 10, 18);
+        } else if (percent >= 0.5) {
+            // Warning
+            this.ctx.fillStyle = '#ffaa00';
+            this.ctx.fillText(`Reaper: ${movesRemaining} moves`, this.canvas.width - 10, 18);
+        } else {
+            // Normal display
+            this.ctx.fillStyle = '#888888';
+            this.ctx.fillText(`Moves: ${movesRemaining}`, this.canvas.width - 10, 18);
+        }
+
+        this.ctx.restore();
     }
 
     drawLevelUp(player: Player) {
@@ -2318,5 +2475,333 @@ export class Renderer {
         const g = parseInt(c.substring(2, 4), 16);
         const b = parseInt(c.substring(4, 6), 16);
         return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    // ============================================
+    // MULTIPLAYER RENDERING
+    // ============================================
+
+    drawMultiplayerLobby(room: GameRoom | null, selectedOption: number, isCreating: boolean, roomCode: string) {
+        this.ctx.fillStyle = 'rgba(10, 10, 30, 0.98)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const centerX = this.canvas.width / 2;
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 32px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('MULTIPLAYER', centerX, 50);
+
+        if (!room) {
+            // Main menu
+            this.ctx.font = '18px monospace';
+            this.ctx.fillStyle = '#aaa';
+            this.ctx.fillText('Select game mode:', centerX, 100);
+
+            const options = [
+                { label: 'Create Duel Room (vs AI)', desc: 'Fight with a level 50 character' },
+                { label: 'Create Duel Room (vs Player)', desc: 'Challenge another player' },
+                { label: 'Join Room', desc: 'Enter room code' },
+                { label: 'Co-op Dungeon', desc: 'Explore together (Coming Soon)' },
+                { label: 'Back to Game', desc: 'Return to main game' }
+            ];
+
+            for (let i = 0; i < options.length; i++) {
+                const y = 160 + i * 60;
+                const isSelected = i === selectedOption;
+
+                this.ctx.fillStyle = isSelected ? 'rgba(100, 150, 255, 0.3)' : 'rgba(50, 50, 80, 0.5)';
+                this.ctx.fillRect(centerX - 200, y - 20, 400, 50);
+                this.ctx.strokeStyle = isSelected ? '#4af' : '#444';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(centerX - 200, y - 20, 400, 50);
+
+                this.ctx.fillStyle = isSelected ? '#fff' : '#888';
+                this.ctx.font = 'bold 16px monospace';
+                this.ctx.fillText(options[i].label, centerX, y + 5);
+                this.ctx.font = '12px monospace';
+                this.ctx.fillStyle = isSelected ? '#aaa' : '#555';
+                this.ctx.fillText(options[i].desc, centerX, y + 22);
+            }
+
+            // Room code input if joining
+            if (isCreating && selectedOption === 2) {
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                this.ctx.fillRect(centerX - 150, 380, 300, 60);
+                this.ctx.strokeStyle = '#4af';
+                this.ctx.strokeRect(centerX - 150, 380, 300, 60);
+
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = '14px monospace';
+                this.ctx.fillText('Enter Room Code:', centerX, 400);
+                this.ctx.font = 'bold 24px monospace';
+                this.ctx.fillStyle = '#4af';
+                this.ctx.fillText(roomCode || '______', centerX, 430);
+            }
+
+            this.ctx.fillStyle = '#666';
+            this.ctx.font = '12px monospace';
+            this.ctx.fillText('[↑↓] Navigate | [ENTER] Select | [ESC] Back', centerX, this.canvas.height - 20);
+        } else {
+            // In a room
+            this.ctx.font = '20px monospace';
+            this.ctx.fillStyle = '#4af';
+            this.ctx.fillText(`Room: ${room.code}`, centerX, 90);
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText(`Mode: ${room.mode === 'duel' ? 'Duel' : 'Co-op'} | ${room.players.length}/${room.maxPlayers} players`, centerX, 115);
+
+            // Player list
+            this.ctx.fillStyle = 'rgba(30, 30, 60, 0.8)';
+            this.ctx.fillRect(centerX - 200, 140, 400, 150);
+            this.ctx.strokeStyle = '#444';
+            this.ctx.strokeRect(centerX - 200, 140, 400, 150);
+
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = 'bold 14px monospace';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText('Players:', centerX - 180, 165);
+
+            for (let i = 0; i < room.players.length; i++) {
+                const player = room.players[i];
+                const y = 190 + i * 30;
+
+                this.ctx.fillStyle = player.ready ? '#0f0' : '#f80';
+                this.ctx.fillText(player.ready ? '✓' : '○', centerX - 180, y);
+                this.ctx.fillStyle = '#fff';
+                this.ctx.fillText(`${player.name}${player.isHost ? ' (Host)' : ''}`, centerX - 150, y);
+                this.ctx.fillStyle = '#888';
+                this.ctx.fillText(player.ready ? 'Ready' : 'Not Ready', centerX + 100, y);
+            }
+
+            this.ctx.textAlign = 'center';
+            this.ctx.fillStyle = '#666';
+            this.ctx.font = '12px monospace';
+            this.ctx.fillText('[ENTER] Ready/Start | [ESC] Leave Room', centerX, this.canvas.height - 20);
+        }
+    }
+
+    drawDuelStatAllocation(stats: DuelStats, selectedStat: number) {
+        this.ctx.fillStyle = 'rgba(10, 10, 30, 0.98)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const centerX = this.canvas.width / 2;
+
+        this.ctx.fillStyle = '#ff0';
+        this.ctx.font = 'bold 28px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('ALLOCATE YOUR STATS', centerX, 50);
+
+        this.ctx.fillStyle = '#888';
+        this.ctx.font = '14px monospace';
+        this.ctx.fillText('You are Level 50 - Distribute 50 stat points', centerX, 80);
+
+        // Points remaining
+        this.ctx.fillStyle = stats.pointsRemaining > 0 ? '#4af' : '#0f0';
+        this.ctx.font = 'bold 20px monospace';
+        this.ctx.fillText(`Points Remaining: ${stats.pointsRemaining}`, centerX, 120);
+
+        // Stat list
+        const statList: { key: string; label: string; value: number; desc: string }[] = [
+            { key: 'hp', label: 'HP', value: stats.maxHp, desc: '+5 HP per point' },
+            { key: 'attack', label: 'Attack', value: stats.attack, desc: '+1 ATK per point' },
+            { key: 'defense', label: 'Defense', value: stats.defense, desc: '+1 DEF per point' },
+            { key: 'mana', label: 'Mana', value: stats.maxMana, desc: '+2 MP per point' },
+            { key: 'speed', label: 'Speed', value: stats.speed, desc: '+1 SPD per point' }
+        ];
+
+        for (let i = 0; i < statList.length; i++) {
+            const stat = statList[i];
+            const y = 170 + i * 55;
+            const isSelected = i === selectedStat;
+
+            // Background
+            this.ctx.fillStyle = isSelected ? 'rgba(100, 150, 255, 0.2)' : 'rgba(40, 40, 60, 0.5)';
+            this.ctx.fillRect(centerX - 250, y - 10, 500, 45);
+            this.ctx.strokeStyle = isSelected ? '#4af' : '#333';
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeRect(centerX - 250, y - 10, 500, 45);
+
+            // Label
+            this.ctx.fillStyle = isSelected ? '#fff' : '#aaa';
+            this.ctx.font = 'bold 18px monospace';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText(stat.label, centerX - 230, y + 10);
+
+            // Value bar
+            const barWidth = 200;
+            const barX = centerX - 50;
+            const maxVal = stat.key === 'hp' ? 350 : stat.key === 'mana' ? 150 : 60;
+            const pct = stat.value / maxVal;
+
+            this.ctx.fillStyle = '#222';
+            this.ctx.fillRect(barX, y - 2, barWidth, 20);
+            this.ctx.fillStyle = this.getStatColor(stat.key);
+            this.ctx.fillRect(barX, y - 2, barWidth * pct, 20);
+            this.ctx.strokeStyle = '#666';
+            this.ctx.strokeRect(barX, y - 2, barWidth, 20);
+
+            // Value text
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = 'bold 14px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(stat.value.toString(), barX + barWidth / 2, y + 12);
+
+            // Description
+            this.ctx.fillStyle = '#666';
+            this.ctx.font = '11px monospace';
+            this.ctx.textAlign = 'right';
+            this.ctx.fillText(stat.desc, centerX + 230, y + 10);
+
+            // +/- buttons
+            if (isSelected) {
+                this.ctx.fillStyle = '#4af';
+                this.ctx.font = 'bold 24px monospace';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('◄', barX - 25, y + 14);
+                this.ctx.fillText('►', barX + barWidth + 25, y + 14);
+            }
+        }
+
+        this.ctx.textAlign = 'center';
+        this.ctx.fillStyle = '#666';
+        this.ctx.font = '12px monospace';
+        this.ctx.fillText('[↑↓] Select Stat | [←→] Adjust | [ENTER] Confirm | [ESC] Cancel', centerX, this.canvas.height - 20);
+    }
+
+    private getStatColor(stat: string): string {
+        switch (stat) {
+            case 'hp': return '#0f0';
+            case 'attack': return '#f44';
+            case 'defense': return '#48f';
+            case 'mana': return '#a0f';
+            case 'speed': return '#ff0';
+            default: return '#888';
+        }
+    }
+
+    drawDuel(duel: DuelState, isPlayer1: boolean) {
+        this.ctx.fillStyle = 'rgba(20, 10, 30, 0.98)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const centerX = this.canvas.width / 2;
+
+        // Title
+        this.ctx.fillStyle = '#f80';
+        this.ctx.font = 'bold 28px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(`⚔ DUEL - Turn ${duel.turn} ⚔`, centerX, 40);
+
+        // Player boxes
+        const p1 = duel.player1Stats;
+        const p2 = duel.player2Stats;
+
+        // Player 1 (left)
+        this.drawDuelPlayerBox(80, 70, p1, duel.player1Stamina, isPlayer1 ? 'YOU' : 'P1', isPlayer1);
+
+        // Player 2 (right)
+        this.drawDuelPlayerBox(this.canvas.width - 280, 70, p2, duel.player2Stamina, !isPlayer1 ? 'YOU' : 'P2/AI', !isPlayer1);
+
+        // VS in center
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 40px monospace';
+        this.ctx.fillText('VS', centerX, 140);
+
+        // Action selection or result
+        if (duel.phase === DuelPhase.SelectAction) {
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.font = 'bold 18px monospace';
+            this.ctx.fillText('SELECT YOUR ACTION', centerX, 220);
+
+            // Action buttons
+            const actions = [
+                { key: '1', action: DuelAction.Strike, name: 'Strike', cost: '15 ST', color: '#f80' },
+                { key: '2', action: DuelAction.Guard, name: 'Guard', cost: '10 ST', color: '#0af' },
+                { key: '3', action: DuelAction.Feint, name: 'Feint', cost: '20 ST', color: '#0f8' },
+                { key: '4', action: DuelAction.HeavyStrike, name: 'Heavy', cost: '30 ST', color: '#f44' },
+                { key: 'Q', action: DuelAction.Heal, name: 'Heal', cost: '15 MP', color: '#0f0' },
+                { key: 'W', action: DuelAction.Fireball, name: 'Fireball', cost: '15 MP', color: '#f80' }
+            ];
+
+            const btnW = 110;
+            const btnH = 60;
+            const startX = centerX - (actions.length * (btnW + 10)) / 2;
+
+            for (let i = 0; i < actions.length; i++) {
+                const a = actions[i];
+                const x = startX + i * (btnW + 10);
+                const y = 250;
+
+                this.ctx.fillStyle = 'rgba(50, 50, 70, 0.9)';
+                this.ctx.fillRect(x, y, btnW, btnH);
+                this.ctx.strokeStyle = a.color;
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(x, y, btnW, btnH);
+
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = 'bold 12px monospace';
+                this.ctx.fillText(`[${a.key}] ${a.name}`, x + btnW / 2, y + 25);
+                this.ctx.font = '10px monospace';
+                this.ctx.fillStyle = a.color;
+                this.ctx.fillText(a.cost, x + btnW / 2, y + 45);
+            }
+        } else if (duel.phase === DuelPhase.Result || duel.phase === DuelPhase.Resolution) {
+            // Show result
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = 'bold 16px monospace';
+            this.ctx.fillText(duel.lastResult, centerX, 260);
+
+            if (duel.phase === DuelPhase.Result) {
+                this.ctx.fillStyle = '#888';
+                this.ctx.font = '14px monospace';
+                this.ctx.fillText('Press any key to continue...', centerX, 300);
+            }
+        } else if (duel.phase === DuelPhase.Victory) {
+            const winColor = duel.winnerId === 'player1' ? (isPlayer1 ? '#0f0' : '#f00') : (!isPlayer1 ? '#0f0' : '#f00');
+            this.ctx.fillStyle = winColor;
+            this.ctx.font = 'bold 36px monospace';
+            this.ctx.fillText(duel.lastResult, centerX, 280);
+
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText('[ESC] Return to Lobby', centerX, 330);
+        }
+
+        // Combat log
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        this.ctx.fillRect(20, 350, this.canvas.width - 40, 100);
+        this.ctx.fillStyle = '#aaa';
+        this.ctx.font = '12px monospace';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText('Combat Log:', 30, 370);
+        this.ctx.fillText(duel.lastResult, 30, 395);
+    }
+
+    private drawDuelPlayerBox(x: number, y: number, stats: DuelStats, stamina: number, label: string, highlight: boolean) {
+        const boxW = 200;
+        const boxH = 120;
+
+        this.ctx.fillStyle = highlight ? 'rgba(0, 100, 150, 0.6)' : 'rgba(80, 40, 40, 0.6)';
+        this.ctx.fillRect(x, y, boxW, boxH);
+        this.ctx.strokeStyle = highlight ? '#0af' : '#f44';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(x, y, boxW, boxH);
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 16px monospace';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(label, x + 10, y + 22);
+
+        // HP
+        this.drawBar(x + 10, y + 32, boxW - 20, 16, stats.hp, stats.maxHp, '#0f0', '#300', 'HP');
+        // Mana
+        this.drawBar(x + 10, y + 52, boxW - 20, 12, stats.mana, stats.maxMana, '#00f', '#003', 'MP');
+        // Stamina
+        this.drawBar(x + 10, y + 68, boxW - 20, 12, stamina, 100, '#ff0', '#330', 'ST');
+
+        // Stats
+        this.ctx.fillStyle = '#aaa';
+        this.ctx.font = '10px monospace';
+        this.ctx.fillText(`ATK:${stats.attack} DEF:${stats.defense} SPD:${stats.speed}`, x + 10, y + 100);
     }
 }

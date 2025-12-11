@@ -11,11 +11,13 @@ import { AssetManager } from './GameAssets';
 import { generateSwarmConfig, generateBossConfig, generateChallengeConfig, getRandomShrineEffect, generateRoomPuzzle } from './RoomTypes';
 import { SKILL_TREES, canMulticlass, getAvailableMulticlasses } from './SkillTree';
 import type { SkillTree } from './SkillTree';
+import { multiplayer, DuelPhase, DuelAction, type DuelState, type DuelStats, type GameRoom } from './Multiplayer';
+import { getBiomeName } from './Biomes';
 
 export const GameState = {
     Map: 0,
     Combat: 1,
-    MultiCombat: 2,  // New: swarm battles
+    MultiCombat: 2,
     LevelUp: 3,
     Stats: 4,
     Equipment: 5,
@@ -23,7 +25,10 @@ export const GameState = {
     Puzzle: 7,
     ClassSelect: 8,
     SkillTree: 9,
-    Multiclass: 10
+    Multiclass: 10,
+    MultiplayerLobby: 11,
+    DuelSetup: 12,
+    Duel: 13
 } as const;
 
 export type GameState = typeof GameState[keyof typeof GameState];
@@ -78,6 +83,20 @@ export class Game {
     // Current room tracking
     currentRoomIndex: number = 0;
     lastRoomIndex: number = -1;
+
+    // Multiplayer state
+    multiplayerMenuOption: number = 0;
+    isEnteringRoomCode: boolean = false;
+    roomCodeInput: string = '';
+    duelStats: DuelStats | null = null;
+    duelSelectedStat: number = 0;
+    duelState: DuelState | null = null;
+    multiplayerRoom: GameRoom | null = null;
+
+    // Reaper mechanic - spawns if player takes too long
+    floorMoveCount: number = 0;
+    reaperSpawned: boolean = false;
+    reaper: Enemy | null = null;
 
     constructor() {
         this.renderer = new Renderer('gameCanvas', VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
@@ -162,6 +181,11 @@ export class Game {
         this.map = new GameMap(MAP_WIDTH, MAP_HEIGHT);
         this.map.floor = this.floor;
         this.map.generate();
+
+        // Reset reaper tracking for new floor
+        this.floorMoveCount = 0;
+        this.reaperSpawned = false;
+        this.reaper = null;
 
         // Clear pathfinding cache when generating a new level
         clearPathCache();
@@ -555,6 +579,24 @@ export class Game {
             return;
         }
 
+        // Multiplayer Lobby state
+        if (this.state === GameState.MultiplayerLobby) {
+            this.handleMultiplayerLobbyInput(key);
+            return;
+        }
+
+        // Duel Setup state (stat allocation)
+        if (this.state === GameState.DuelSetup) {
+            this.handleDuelSetupInput(key);
+            return;
+        }
+
+        // Duel state
+        if (this.state === GameState.Duel) {
+            this.handleDuelInput(key);
+            return;
+        }
+
         // Multiclass selection state
         if (this.state === GameState.Multiclass) {
             if (key === 'Escape') {
@@ -645,6 +687,14 @@ export class Game {
                 this.toggleNotifications();
                 return;
             }
+            // Multiplayer (P key)
+            if (key === 'p' || key === 'P') {
+                this.state = GameState.MultiplayerLobby;
+                this.multiplayerMenuOption = 0;
+                this.isEnteringRoomCode = false;
+                this.roomCodeInput = '';
+                return;
+            }
             // Skills
             if (key === '1') this.useSkill(0);
             if (key === '2') this.useSkill(1);
@@ -689,6 +739,10 @@ export class Game {
                 if (trap) {
                     this.triggerTrap(trap);
                 }
+
+                // Track movement for reaper spawn
+                this.floorMoveCount++;
+                this.checkReaperSpawn();
             }
 
             this.player.updateBuffs();
@@ -1087,7 +1141,8 @@ export class Game {
         if (enemy instanceof DungeonCore) {
             this.log("Dungeon Core destroyed! Moving to next floor...");
             this.floor++;
-            this.notify(`Floor ${this.floor}!`, 2000);
+            this.renderer.setBiome(this.floor);
+            this.notify(`Floor ${this.floor} - ${getBiomeName(this.floor)}!`, 2500);
             setTimeout(() => this.generateLevel(), 1000);
         } else {
             this.enemies = this.enemies.filter(e => e !== enemy);
@@ -1197,6 +1252,120 @@ export class Game {
                         enemy.y += dy;
                     }
                 }
+            }
+        }
+
+        // Reaper always pursues the player aggressively
+        this.updateReaper();
+    }
+
+    checkReaperSpawn() {
+        if (this.reaperSpawned) return;
+
+        const threshold = Math.floor((this.map.width * this.map.height) / 2);
+
+        if (this.floorMoveCount >= threshold) {
+            this.spawnReaper();
+        }
+    }
+
+    spawnReaper() {
+        this.reaperSpawned = true;
+
+        // Find spawn position at the edge of the map, far from player
+        let spawnX = 0;
+        let spawnY = 0;
+        let maxDist = 0;
+
+        // Try corners and edges
+        const candidates = [
+            { x: 2, y: 2 },
+            { x: this.map.width - 3, y: 2 },
+            { x: 2, y: this.map.height - 3 },
+            { x: this.map.width - 3, y: this.map.height - 3 }
+        ];
+
+        for (const pos of candidates) {
+            const dist = Math.abs(pos.x - this.player.x) + Math.abs(pos.y - this.player.y);
+            if (dist > maxDist && !this.map.isBlocked(pos.x, pos.y)) {
+                maxDist = dist;
+                spawnX = pos.x;
+                spawnY = pos.y;
+            }
+        }
+
+        // If no valid corner, find any valid spot
+        if (maxDist === 0) {
+            for (let attempt = 0; attempt < 100; attempt++) {
+                const rx = Math.floor(Math.random() * (this.map.width - 4)) + 2;
+                const ry = Math.floor(Math.random() * (this.map.height - 4)) + 2;
+                if (!this.map.isBlocked(rx, ry)) {
+                    const dist = Math.abs(rx - this.player.x) + Math.abs(ry - this.player.y);
+                    if (dist > maxDist) {
+                        maxDist = dist;
+                        spawnX = rx;
+                        spawnY = ry;
+                    }
+                }
+            }
+        }
+
+        // Create the Reaper - a level 99 death entity
+        // Using difficulty 99, not boss (we'll override stats manually)
+        this.reaper = new Enemy(spawnX, spawnY, 99, false);
+        this.reaper.name = 'The Reaper';
+        this.reaper.char = '☠';
+        this.reaper.stats.maxHp = 9999;
+        this.reaper.stats.hp = 9999;
+        this.reaper.stats.attack = 999;
+        this.reaper.stats.defense = 99;
+        this.reaper.stats.level = 99;
+        this.reaper.aggroRange = 999; // Always knows where player is
+        this.reaper.color = '#880088'; // Dark purple/magenta
+
+        this.enemies.push(this.reaper);
+
+        this.log("⚠️ THE REAPER HAS COME FOR YOU!");
+        this.notify('☠️ THE REAPER APPROACHES ☠️', 3000);
+    }
+
+    updateReaper() {
+        if (!this.reaper || this.reaper.isDead) return;
+
+        const dist = Math.abs(this.reaper.x - this.player.x) + Math.abs(this.reaper.y - this.player.y);
+
+        // If adjacent, initiate combat
+        if (dist === 1) {
+            this.log("The Reaper catches you!");
+            this.combatSystem = new CombatSystem(this.player, this.reaper);
+            this.state = GameState.Combat;
+            this.notify('☠️ FACE THE REAPER ☠️', 2000);
+            return;
+        }
+
+        // Always move toward player, twice as fast (2 steps per turn)
+        for (let i = 0; i < 2; i++) {
+            const path = aStar(
+                { x: this.reaper.x, y: this.reaper.y },
+                { x: this.player.x, y: this.player.y },
+                (x, y) => this.map.isBlocked(x, y)
+            );
+
+            if (path.length > 1) {
+                const nextStep = path[1];
+                // Don't step on player's tile
+                if (nextStep.x !== this.player.x || nextStep.y !== this.player.y) {
+                    this.reaper.x = nextStep.x;
+                    this.reaper.y = nextStep.y;
+                } else {
+                    break; // Adjacent to player
+                }
+            }
+
+            // Check if now adjacent after moving
+            const newDist = Math.abs(this.reaper.x - this.player.x) + Math.abs(this.reaper.y - this.player.y);
+            if (newDist === 1) {
+                break;
             }
         }
     }
@@ -1313,6 +1482,17 @@ export class Game {
                 this.selectedMulticlassIndex,
                 this.player.multiclass.primaryClass
             );
+        } else if (this.state === GameState.MultiplayerLobby) {
+            this.renderer.drawMultiplayerLobby(
+                this.multiplayerRoom,
+                this.multiplayerMenuOption,
+                this.isEnteringRoomCode,
+                this.roomCodeInput
+            );
+        } else if (this.state === GameState.DuelSetup && this.duelStats) {
+            this.renderer.drawDuelStatAllocation(this.duelStats, this.duelSelectedStat);
+        } else if (this.state === GameState.Duel && this.duelState) {
+            this.renderer.drawDuel(this.duelState, true); // Always player 1 in local
         } else if (this.state === GameState.LevelUp) {
             // Draw map in background
             this.renderer.drawMap(this.map, this.player.x, this.player.y);
@@ -1348,12 +1528,166 @@ export class Game {
             this.renderer.drawEntity(this.player, this.map, camX, camY);
             this.renderer.drawMinimap(this.map, this.player);
             this.renderer.drawUI(this.player, this.logs, this.floor);
+
+            // Draw reaper warning/timer
+            const reaperThreshold = Math.floor((this.map.width * this.map.height) / 2);
+            this.renderer.drawReaperWarning(this.floorMoveCount, reaperThreshold, this.reaperSpawned);
         }
 
         // Draw timed notifications on top (combat mode positions them differently)
         const inCombat = this.state === GameState.Combat || this.state === GameState.MultiCombat;
         this.renderer.drawNotifications(this.notifications, this.notificationsEnabled, inCombat);
     }
+
+    // ============================================
+    // MULTIPLAYER HANDLERS
+    // ============================================
+
+    handleMultiplayerLobbyInput(key: string) {
+        if (this.multiplayerRoom) {
+            // In a room
+            if (key === 'Escape') {
+                this.multiplayerRoom = null;
+                multiplayer.leaveRoom();
+                return;
+            }
+            if (key === 'Enter') {
+                // Start/Ready
+                if (this.multiplayerRoom.mode === 'duel') {
+                    // Go to stat allocation
+                    this.duelStats = multiplayer.createDefaultDuelStats();
+                    this.duelSelectedStat = 0;
+                    this.state = GameState.DuelSetup;
+                }
+            }
+            return;
+        }
+
+        if (this.isEnteringRoomCode) {
+            if (key === 'Escape') {
+                this.isEnteringRoomCode = false;
+                this.roomCodeInput = '';
+            } else if (key === 'Enter' && this.roomCodeInput.length === 6) {
+                // Join room (would connect to server in real implementation)
+                this.notify('Room joining not yet implemented (local only)');
+                this.isEnteringRoomCode = false;
+            } else if (key === 'Backspace') {
+                this.roomCodeInput = this.roomCodeInput.slice(0, -1);
+            } else if (key.length === 1 && /[A-Za-z0-9]/.test(key) && this.roomCodeInput.length < 6) {
+                this.roomCodeInput += key.toUpperCase();
+            }
+            return;
+        }
+
+        // Main menu navigation
+        if (key === 'Escape') {
+            this.state = GameState.Map;
+        } else if (key === 'ArrowUp' || key === 'w') {
+            this.multiplayerMenuOption = Math.max(0, this.multiplayerMenuOption - 1);
+        } else if (key === 'ArrowDown' || key === 's') {
+            this.multiplayerMenuOption = Math.min(4, this.multiplayerMenuOption + 1);
+        } else if (key === 'Enter') {
+            switch (this.multiplayerMenuOption) {
+                case 0: // Create Duel vs AI
+                    this.multiplayerRoom = multiplayer.simulateLocalRoom('duel');
+                    multiplayer.addAIOpponent();
+                    this.duelStats = multiplayer.createDefaultDuelStats();
+                    this.duelSelectedStat = 0;
+                    this.state = GameState.DuelSetup;
+                    break;
+                case 1: // Create Duel vs Player (placeholder)
+                    this.notify('Online multiplayer coming soon!');
+                    break;
+                case 2: // Join Room
+                    this.isEnteringRoomCode = true;
+                    this.roomCodeInput = '';
+                    break;
+                case 3: // Co-op
+                    this.notify('Co-op dungeon coming soon!');
+                    break;
+                case 4: // Back
+                    this.state = GameState.Map;
+                    break;
+            }
+        }
+    }
+
+    handleDuelSetupInput(key: string) {
+        if (!this.duelStats) return;
+
+        if (key === 'Escape') {
+            this.state = GameState.MultiplayerLobby;
+            this.duelStats = null;
+        } else if (key === 'ArrowUp' || key === 'w') {
+            this.duelSelectedStat = Math.max(0, this.duelSelectedStat - 1);
+        } else if (key === 'ArrowDown' || key === 's') {
+            this.duelSelectedStat = Math.min(4, this.duelSelectedStat + 1);
+        } else if (key === 'ArrowRight' || key === 'd') {
+            const stats = ['hp', 'attack', 'defense', 'mana', 'speed'] as const;
+            this.duelStats = multiplayer.allocateStat(stats[this.duelSelectedStat], this.duelStats);
+        } else if (key === 'ArrowLeft' || key === 'a') {
+            const stats = ['hp', 'attack', 'defense', 'mana', 'speed'] as const;
+            this.duelStats = multiplayer.deallocateStat(stats[this.duelSelectedStat], this.duelStats);
+        } else if (key === 'Enter') {
+            if (this.duelStats.pointsRemaining === 0) {
+                // Start duel
+                const aiStats = this.multiplayerRoom?.players.find(p => p.id.startsWith('AI_'))?.stats;
+                if (aiStats) {
+                    this.duelState = multiplayer.initDuelState(this.duelStats, aiStats);
+                    this.state = GameState.Duel;
+                }
+            } else {
+                this.notify(`Allocate all points first! (${this.duelStats.pointsRemaining} remaining)`);
+            }
+        }
+    }
+
+    handleDuelInput(key: string) {
+        if (!this.duelState) return;
+
+        if (this.duelState.phase === DuelPhase.Victory) {
+            if (key === 'Escape') {
+                this.duelState = null;
+                this.multiplayerRoom = null;
+                this.state = GameState.Map;
+            }
+            return;
+        }
+
+        if (this.duelState.phase === DuelPhase.Result) {
+            // Advance to next turn
+            this.duelState.phase = DuelPhase.SelectAction;
+            this.duelState.player1Action = null;
+            this.duelState.player2Action = null;
+            return;
+        }
+
+        if (this.duelState.phase === DuelPhase.SelectAction) {
+            let playerAction: typeof DuelAction[keyof typeof DuelAction] | null = null;
+
+            if (key === '1') playerAction = DuelAction.Strike;
+            else if (key === '2') playerAction = DuelAction.Guard;
+            else if (key === '3') playerAction = DuelAction.Feint;
+            else if (key === '4') playerAction = DuelAction.HeavyStrike;
+            else if (key === 'q' || key === 'Q') playerAction = DuelAction.Heal;
+            else if (key === 'w' || key === 'W') playerAction = DuelAction.Fireball;
+            else if (key === 'Escape') {
+                // Forfeit
+                this.duelState = null;
+                this.multiplayerRoom = null;
+                this.state = GameState.Map;
+                return;
+            }
+
+            if (playerAction) {
+                // Get AI action
+                const aiAction = multiplayer.getAIAction(this.duelState);
+                // Resolve turn
+                this.duelState = multiplayer.resolveDuelTurn(this.duelState, playerAction, aiAction);
+            }
+        }
+    }
+
     loop() {
         this.update();
         this.draw();

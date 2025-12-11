@@ -6,6 +6,7 @@ import { getRandomInt } from './utils';
 // ============================================
 
 export const CombatPhase = {
+    Intro: -1,          // Pokemon-style intro animation
     SelectAction: 0,    // Player chooses action
     ShowPremonition: 1, // If premonition used, show enemy intent
     Resolution: 2,      // Actions resolve with animation
@@ -98,7 +99,7 @@ export class CombatSystem {
     player: Player;
     enemy: Enemy;
 
-    phase: CombatPhase = CombatPhase.SelectAction;
+    phase: CombatPhase = CombatPhase.Intro;
     turn: number = 1;
 
     // Combat resources
@@ -124,6 +125,7 @@ export class CombatSystem {
     // Animation/timing
     phaseTimer: number = 0;
     animationProgress: number = 0;
+    introProgress: number = 0; // For intro animation (0-100)
 
     // Combat log
     log: string[] = [];
@@ -145,6 +147,11 @@ export class CombatSystem {
 
         // Generate enemy AI pattern (semi-predictable for skilled players)
         this.generateEnemyPattern();
+
+        // Start with intro animation
+        this.phase = CombatPhase.Intro;
+        this.introProgress = 0;
+        this.phaseTimer = 90; // 1.5 seconds at 60fps
 
         this.log.push(`-- Combat with ${enemy.name} begins! --`);
         this.log.push(`Tip: Use [E] Premonition to see enemy's next move`);
@@ -555,6 +562,17 @@ export class CombatSystem {
             this.effects[i].life--;
             if (this.effects[i].life <= 0) {
                 this.effects.splice(i, 1);
+            }
+        }
+
+        // Handle intro phase animation
+        if (this.phase === CombatPhase.Intro) {
+            this.introProgress += 2; // Progress the intro animation
+            this.phaseTimer--;
+
+            if (this.phaseTimer <= 0 || this.introProgress >= 100) {
+                this.phase = CombatPhase.SelectAction;
+                this.introProgress = 100;
             }
         }
 
