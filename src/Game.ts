@@ -837,16 +837,7 @@ export class Game {
         if (this.core.puzzleType === 'sequence') {
             // Simon-says style: press 1-4 to match the sequence
             if (puzzle.showingSequence) {
-                // Auto-advance the sequence display
-                puzzle.showTimer++;
-                if (puzzle.showTimer > 30) {
-                    puzzle.showTimer = 0;
-                    puzzle.showIndex++;
-                    if (puzzle.showIndex >= puzzle.sequence.length) {
-                        // Done showing, now player inputs
-                        puzzle.showingSequence = false;
-                    }
-                }
+                // Animations handled in update loop now, just wait
                 return;
             }
 
@@ -855,25 +846,18 @@ export class Game {
                 if (num === puzzle.sequence[puzzle.currentIndex]) {
                     puzzle.currentIndex++;
                     if (puzzle.currentIndex >= puzzle.sequence.length) {
-                        // Puzzle complete!
-                        const allDone = this.core.completePuzzle();
-                        if (allDone) {
-                            this.log("All puzzles solved! The Core is vulnerable!");
-                            this.notify('Core Vulnerable!', 2000);
-                        } else {
-                            this.log(`Puzzle ${this.core.puzzlesCompleted}/${this.core.puzzlesRequired} complete! Lamp lit!`);
-                            this.notify(`Lamp ${this.core.puzzlesCompleted} Lit!`, 1500);
-                        }
-                        this.state = GameState.Map;
+                        this.completePuzzleStep();
                     }
                 } else {
-                    // Wrong input, reset current puzzle
                     this.core.resetCurrentPuzzle();
                     this.log("Wrong sequence! Try again...");
+                    this.notify('Wrong!', 1000);
                 }
             }
         } else if (this.core.puzzleType === 'match') {
             // Memory match: 1-8 to select cards
+            if (puzzle.hideTimer > 0) return; // Wait for cards to hide
+
             const num = parseInt(key);
             if (num >= 1 && num <= 8) {
                 const idx = num - 1;
@@ -894,23 +878,11 @@ export class Game {
                         puzzle.matchesMade++;
 
                         if (puzzle.matchesMade >= puzzle.matchesNeeded) {
-                            // Puzzle complete!
-                            const allDone = this.core.completePuzzle();
-                            if (allDone) {
-                                this.log("All puzzles solved! The Core is vulnerable!");
-                                this.notify('Core Vulnerable!', 2000);
-                            } else {
-                                this.log(`Puzzle ${this.core.puzzlesCompleted}/${this.core.puzzlesRequired} complete! Lamp lit!`);
-                                this.notify(`Lamp ${this.core.puzzlesCompleted} Lit!`, 1500);
-                            }
-                            this.state = GameState.Map;
+                            this.completePuzzleStep();
                         }
                     } else {
-                        // No match, hide after delay
-                        setTimeout(() => {
-                            first.revealed = false;
-                            card.revealed = false;
-                        }, 500);
+                        // No match, set timer to hide
+                        puzzle.hideTimer = 40; // ~0.67 seconds
                     }
                     puzzle.firstSelection = -1;
                 }
@@ -918,11 +890,7 @@ export class Game {
         } else if (this.core.puzzleType === 'memory') {
             // Grid memory: after seeing pattern, recreate it with numpad/keys
             if (puzzle.showingPattern) {
-                puzzle.showTimer--;
-                if (puzzle.showTimer <= 0) {
-                    puzzle.showingPattern = false;
-                }
-                return;
+                return; // Just watching
             }
 
             // Use numpad or 1-9 keys for 3x3 grid
@@ -946,23 +914,131 @@ export class Game {
                 }
 
                 if (correct) {
-                    // Puzzle complete!
-                    const allDone = this.core.completePuzzle();
-                    if (allDone) {
-                        this.log("All puzzles solved! The Core is vulnerable!");
-                        this.notify('Core Vulnerable!', 2000);
-                    } else {
-                        this.log(`Puzzle ${this.core.puzzlesCompleted}/${this.core.puzzlesRequired} complete! Lamp lit!`);
-                        this.notify(`Lamp ${this.core.puzzlesCompleted} Lit!`, 1500);
-                    }
-                    this.state = GameState.Map;
+                    this.completePuzzleStep();
                 } else {
-                    // Reset current puzzle
                     this.core.resetCurrentPuzzle();
                     this.log("Wrong pattern! Watch again...");
+                    this.notify('Wrong!', 1000);
                 }
             }
+        } else if (this.core.puzzleType === 'math') {
+            // Math puzzle: select answer with 1-4
+            const num = parseInt(key);
+            if (num >= 1 && num <= 4) {
+                const selectedAnswer = puzzle.options[num - 1];
+                if (selectedAnswer === puzzle.answer) {
+                    this.completePuzzleStep();
+                } else {
+                    this.core.resetCurrentPuzzle();
+                    this.log("Wrong answer! Try a new equation...");
+                    this.notify('Wrong!', 1000);
+                }
+            }
+        } else if (this.core.puzzleType === 'logic') {
+            // Logic puzzle: select answer
+            const num = parseInt(key);
+            if (num >= 1 && num <= puzzle.options.length) {
+                const selectedAnswer = puzzle.options[num - 1];
+                if (selectedAnswer === puzzle.answer) {
+                    this.completePuzzleStep();
+                } else {
+                    this.core.resetCurrentPuzzle();
+                    this.log("Incorrect logic! Think again...");
+                    this.notify('Wrong!', 1000);
+                }
+            }
+        } else if (this.core.puzzleType === 'cipher') {
+            // Cipher: type letters to decode
+            const upperKey = key.toUpperCase();
+
+            if (key === 'Backspace') {
+                puzzle.playerInput = puzzle.playerInput.slice(0, -1);
+            } else if (key === 'Enter') {
+                if (puzzle.playerInput.toUpperCase() === puzzle.answer) {
+                    this.completePuzzleStep();
+                } else {
+                    puzzle.playerInput = '';
+                    this.log("Wrong decoding! Try again...");
+                    this.notify('Wrong!', 1000);
+                }
+            } else if (upperKey >= 'A' && upperKey <= 'Z' && puzzle.playerInput.length < puzzle.maxLength) {
+                puzzle.playerInput += upperKey;
+            }
+        } else if (this.core.puzzleType === 'slider') {
+            // Slider puzzle: use arrow keys or 1-4 to move tiles
+            const tiles = puzzle.tiles;
+            const emptyIdx = tiles.indexOf(0);
+            let swapIdx = -1;
+
+            if ((key === 'ArrowLeft' || key === 'a' || key === '2') && emptyIdx % 2 !== 1) {
+                swapIdx = emptyIdx + 1; // Move tile from right
+            } else if ((key === 'ArrowRight' || key === 'd' || key === '1') && emptyIdx % 2 !== 0) {
+                swapIdx = emptyIdx - 1; // Move tile from left
+            } else if ((key === 'ArrowUp' || key === 'w' || key === '4') && emptyIdx < 2) {
+                swapIdx = emptyIdx + 2; // Move tile from below
+            } else if ((key === 'ArrowDown' || key === 's' || key === '3') && emptyIdx >= 2) {
+                swapIdx = emptyIdx - 2; // Move tile from above
+            }
+
+            if (swapIdx >= 0 && swapIdx < 4) {
+                [tiles[emptyIdx], tiles[swapIdx]] = [tiles[swapIdx], tiles[emptyIdx]];
+                puzzle.moves++;
+
+                // Check win condition
+                let solved = true;
+                for (let i = 0; i < 4; i++) {
+                    if (tiles[i] !== puzzle.goal[i]) solved = false;
+                }
+                if (solved) {
+                    this.completePuzzleStep();
+                }
+            }
+        } else if (this.core.puzzleType === 'wire') {
+            // Wire puzzle: select left wire (1-4), then right connection (1-4)
+            const num = parseInt(key);
+            if (num >= 1 && num <= 4) {
+                const idx = num - 1;
+                if (puzzle.selectedLeft === -1) {
+                    // Select left wire
+                    puzzle.selectedLeft = idx;
+                } else {
+                    // Connect to right
+                    puzzle.connections[puzzle.selectedLeft] = idx;
+                    puzzle.selectedLeft = -1;
+
+                    // Check if all connections are correct
+                    let allCorrect = true;
+                    for (let i = 0; i < 4; i++) {
+                        if (puzzle.connections[i] !== puzzle.correctConnections[i]) {
+                            allCorrect = false;
+                            break;
+                        }
+                    }
+                    if (allCorrect) {
+                        this.completePuzzleStep();
+                    }
+                }
+            }
+            // Cancel selection with Escape or 0
+            if (key === '0') {
+                puzzle.selectedLeft = -1;
+            }
         }
+    }
+
+    // Helper to complete a puzzle step
+    completePuzzleStep() {
+        if (!this.core) return;
+
+        const allDone = this.core.completePuzzle();
+        if (allDone) {
+            this.log("All puzzles solved! The Core is vulnerable!");
+            this.notify('CORE VULNERABLE!', 2500);
+        } else {
+            this.log(`Puzzle ${this.core.puzzlesCompleted}/${this.core.puzzlesRequired} complete! Lamp lit!`);
+            this.notify(`Lamp ${this.core.puzzlesCompleted} Lit!`, 1500);
+        }
+        this.state = GameState.Map;
     }
 
     handleEnemyDeath(enemy: Entity) {
@@ -1129,6 +1205,18 @@ export class Game {
         // Update notification timers
         this.updateNotifications();
 
+        // Update puzzle animations
+        if (this.state === GameState.Puzzle && this.core) {
+            this.core.updatePuzzle();
+
+            // Check for math puzzle timeout
+            if (this.core.puzzleType === 'math' && this.core.puzzleData.timer <= 0) {
+                this.core.resetCurrentPuzzle();
+                this.log("Time's up! New equation...");
+                this.notify('Time Out!', 1000);
+            }
+        }
+
         if (this.state === GameState.Combat && this.combatSystem) {
             this.combatSystem.update();
 
@@ -1262,8 +1350,9 @@ export class Game {
             this.renderer.drawUI(this.player, this.logs, this.floor);
         }
 
-        // Draw timed notifications on top
-        this.renderer.drawNotifications(this.notifications, this.notificationsEnabled);
+        // Draw timed notifications on top (combat mode positions them differently)
+        const inCombat = this.state === GameState.Combat || this.state === GameState.MultiCombat;
+        this.renderer.drawNotifications(this.notifications, this.notificationsEnabled, inCombat);
     }
     loop() {
         this.update();

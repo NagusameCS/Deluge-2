@@ -361,26 +361,42 @@ export class Renderer {
         this.ctx.fillStyle = '#fff';
         this.ctx.fillText(combat.enemy.char, enemySpriteX + 25 + enemyOffset, spriteY + 55);
 
-        // Draw effects
+        // Draw effects with ink-style animations
         for (const effect of combat.effects) {
             const alpha = effect.life / effect.maxLife;
-            this.ctx.fillStyle = effect.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
-            this.ctx.font = 'bold 40px monospace';
-            this.ctx.textAlign = 'center';
+            const progress = 1 - alpha; // 0 at start, 1 at end
+            this.ctx.save();
 
             if (effect.type === 'hit' || effect.type === 'execute') {
-                this.ctx.fillText('*HIT*', effect.x + enemyOffset, effect.y);
+                // Ink-style slash: wider in middle, tapered at ends
+                this.drawInkSlash(
+                    effect.x + enemyOffset, effect.y,
+                    effect.angle ?? -Math.PI / 4,
+                    effect.scale ?? 60,
+                    effect.color, alpha, progress
+                );
             } else if (effect.type === 'block') {
-                this.ctx.fillText('[O]', effect.x, effect.y);
+                // Shield effect: hexagonal barrier
+                this.drawShieldEffect(effect.x, effect.y, effect.color, alpha, progress);
             } else if (effect.type === 'heal') {
-                this.ctx.fillText('+HP', effect.x, effect.y);
+                // Heal: Rising sparkles and glow
+                this.drawHealEffect(effect.x, effect.y, effect.color, alpha, progress);
             } else if (effect.type === 'fireball') {
-                this.ctx.fillText('~*~', effect.x, effect.y);
+                // Fireball: Flame burst with trailing particles
+                this.drawFireballEffect(
+                    effect.x + enemyOffset, effect.y,
+                    effect.color, effect.secondary ?? '#ff4400',
+                    alpha, progress
+                );
             } else if (effect.type === 'premonition') {
-                this.ctx.fillText('(o)', effect.x, effect.y);
+                // Eye/vision effect
+                this.drawPremonitionEffect(effect.x, effect.y, effect.color, alpha);
             } else if (effect.type === 'clash') {
-                this.ctx.fillText('><', effect.x, effect.y);
+                // Impact burst for heavy attacks
+                this.drawImpactEffect(effect.x + enemyOffset, effect.y, effect.color, alpha, progress);
             }
+
+            this.ctx.restore();
         }
 
         // ========== ACTION MENU ==========
@@ -727,22 +743,36 @@ export class Renderer {
             logY += 14;
         }
 
-        // Draw effects
+        // Draw effects with ink-style animations
         for (const effect of combat.effects) {
             const alpha = effect.life / effect.maxLife;
-            this.ctx.fillStyle = effect.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
-            this.ctx.font = 'bold 30px monospace';
-            this.ctx.textAlign = 'center';
+            const progress = 1 - alpha;
+            this.ctx.save();
 
             if (effect.type === 'hit' || effect.type === 'execute') {
-                this.ctx.fillText('*HIT*', effect.x, effect.y);
+                this.drawInkSlash(
+                    effect.x, effect.y,
+                    effect.angle ?? -Math.PI / 4,
+                    effect.scale ?? 50,
+                    effect.color, alpha, progress
+                );
             } else if (effect.type === 'fireball') {
-                this.ctx.fillText('~BURN~', effect.x, effect.y);
+                this.drawFireballEffect(
+                    effect.x, effect.y,
+                    effect.color, effect.secondary ?? '#ff4400',
+                    alpha, progress
+                );
             } else if (effect.type === 'heal') {
-                this.ctx.fillText('+HP', effect.x, effect.y);
+                this.drawHealEffect(effect.x, effect.y, effect.color, alpha, progress);
             } else if (effect.type === 'premonition') {
-                this.ctx.fillText('(o)', effect.x, effect.y);
+                this.drawPremonitionEffect(effect.x, effect.y, effect.color, alpha);
+            } else if (effect.type === 'block') {
+                this.drawShieldEffect(effect.x, effect.y, effect.color, alpha, progress);
+            } else if (effect.type === 'clash') {
+                this.drawImpactEffect(effect.x, effect.y, effect.color, alpha, progress);
             }
+
+            this.ctx.restore();
         }
 
         this.ctx.textAlign = 'left';
@@ -1166,110 +1196,135 @@ export class Renderer {
 
         const centerX = this.canvas.width / 2;
 
+        // Title with puzzle type
         this.ctx.fillStyle = '#0ff';
         this.ctx.font = 'bold 24px monospace';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('-- DUNGEON CORE PUZZLE --', centerX, 40);
+        const puzzleNames: Record<string, string> = {
+            'sequence': 'SEQUENCE',
+            'match': 'MATCH PAIRS',
+            'memory': 'MEMORY GRID',
+            'math': 'ARITHMETIC',
+            'logic': 'LOGIC',
+            'cipher': 'CIPHER',
+            'slider': 'SLIDER',
+            'wire': 'WIRING'
+        };
+        this.ctx.fillText(`-- ${puzzleNames[core.puzzleType] || 'PUZZLE'} --`, centerX, 35);
 
         // Draw lamps showing puzzle progress
-        const lampY = 60;
-        const lampSize = 20;
-        const lampSpacing = 50;
+        const lampY = 50;
+        const lampSize = 16;
+        const lampSpacing = 40;
         const lampsStartX = centerX - (core.puzzlesRequired * lampSpacing) / 2 + lampSpacing / 2;
 
         for (let i = 0; i < core.puzzlesRequired; i++) {
             const lampX = lampsStartX + i * lampSpacing;
             const isLit = core.lampStates[i];
-
-            // Lamp base
-            this.ctx.fillStyle = '#444';
-            this.ctx.fillRect(lampX - 5, lampY + lampSize, 10, 8);
+            const isCurrent = i === core.puzzlesCompleted;
 
             // Lamp glow effect
             if (isLit) {
                 this.ctx.fillStyle = 'rgba(255, 200, 50, 0.3)';
                 this.ctx.beginPath();
-                this.ctx.arc(lampX, lampY + lampSize / 2, lampSize * 1.5, 0, Math.PI * 2);
+                this.ctx.arc(lampX, lampY + lampSize / 2, lampSize, 0, Math.PI * 2);
                 this.ctx.fill();
             }
 
             // Lamp bulb
-            this.ctx.fillStyle = isLit ? '#ffc832' : '#333';
+            this.ctx.fillStyle = isLit ? '#ffc832' : (isCurrent ? '#666' : '#333');
             this.ctx.beginPath();
             this.ctx.arc(lampX, lampY + lampSize / 2, lampSize / 2, 0, Math.PI * 2);
             this.ctx.fill();
 
             // Lamp outline
-            this.ctx.strokeStyle = isLit ? '#ffdd66' : '#666';
-            this.ctx.lineWidth = 2;
+            this.ctx.strokeStyle = isLit ? '#ffdd66' : (isCurrent ? '#0ff' : '#444');
+            this.ctx.lineWidth = isCurrent ? 2 : 1;
             this.ctx.beginPath();
             this.ctx.arc(lampX, lampY + lampSize / 2, lampSize / 2, 0, Math.PI * 2);
             this.ctx.stroke();
-            this.ctx.lineWidth = 1;
         }
-
-        // Progress text
-        this.ctx.fillStyle = '#aaa';
-        this.ctx.font = '12px monospace';
-        this.ctx.fillText(`Puzzles: ${core.puzzlesCompleted}/${core.puzzlesRequired}`, centerX, lampY + lampSize + 25);
+        this.ctx.lineWidth = 1;
 
         const puzzle = core.puzzleData;
+        const contentY = 90; // Start of puzzle content
 
         if (core.puzzleType === 'sequence') {
             this.ctx.fillStyle = '#fff';
             this.ctx.font = '16px monospace';
 
             if (puzzle.showingSequence) {
-                this.ctx.fillText('Memorize the sequence:', centerX, 100);
+                this.ctx.fillText('Memorize the sequence:', centerX, contentY);
 
                 // Show the sequence with highlighting
-                const seqY = 150;
+                const seqY = contentY + 50;
+                const colors = ['#f00', '#0f0', '#00f', '#ff0'];
                 for (let i = 0; i < puzzle.sequence.length; i++) {
-                    const x = centerX - (puzzle.sequence.length * 40) / 2 + i * 40;
-                    const isCurrentShow = i <= puzzle.showIndex;
+                    const x = centerX - (puzzle.sequence.length * 45) / 2 + i * 45;
+                    const isCurrentShow = i === puzzle.showIndex;
+                    const isPast = i < puzzle.showIndex;
 
-                    this.ctx.fillStyle = isCurrentShow ? ['#f00', '#0f0', '#00f', '#ff0'][puzzle.sequence[i] - 1] : '#333';
-                    this.ctx.fillRect(x, seqY, 30, 30);
+                    this.ctx.fillStyle = isCurrentShow ? colors[puzzle.sequence[i] - 1] :
+                        (isPast ? colors[puzzle.sequence[i] - 1] + '66' : '#222');
+                    this.ctx.fillRect(x, seqY, 38, 38);
+                    this.ctx.strokeStyle = isCurrentShow ? '#fff' : '#444';
+                    this.ctx.lineWidth = isCurrentShow ? 3 : 1;
+                    this.ctx.strokeRect(x, seqY, 38, 38);
 
                     this.ctx.fillStyle = '#fff';
-                    this.ctx.font = '20px monospace';
-                    this.ctx.fillText(String(puzzle.sequence[i]), x + 15, seqY + 22);
+                    this.ctx.font = 'bold 20px monospace';
+                    this.ctx.fillText(String(puzzle.sequence[i]), x + 19, seqY + 27);
                 }
+                this.ctx.lineWidth = 1;
 
                 this.ctx.fillStyle = '#888';
                 this.ctx.font = '14px monospace';
-                this.ctx.fillText('Press any key when ready to input...', centerX, 220);
+                this.ctx.fillText('Watch carefully...', centerX, contentY + 120);
             } else {
-                this.ctx.fillText('Enter the sequence:', centerX, 100);
-                this.ctx.fillText(`Progress: ${puzzle.currentIndex} / ${puzzle.sequence.length}`, centerX, 130);
+                this.ctx.fillText('Enter the sequence:', centerX, contentY);
+
+                // Progress bar
+                const barW = 200;
+                const barH = 20;
+                this.ctx.fillStyle = '#222';
+                this.ctx.fillRect(centerX - barW / 2, contentY + 20, barW, barH);
+                this.ctx.fillStyle = '#0f0';
+                this.ctx.fillRect(centerX - barW / 2, contentY + 20, barW * (puzzle.currentIndex / puzzle.sequence.length), barH);
+                this.ctx.strokeStyle = '#fff';
+                this.ctx.strokeRect(centerX - barW / 2, contentY + 20, barW, barH);
+
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = '12px monospace';
+                this.ctx.fillText(`${puzzle.currentIndex} / ${puzzle.sequence.length}`, centerX, contentY + 35);
 
                 // Input buttons
-                const btnY = 180;
+                const btnY = contentY + 80;
                 const colors = ['#f00', '#0f0', '#00f', '#ff0'];
                 for (let i = 1; i <= 4; i++) {
-                    const x = centerX - 100 + (i - 1) * 60;
+                    const x = centerX - 130 + (i - 1) * 70;
                     this.ctx.fillStyle = colors[i - 1];
-                    this.ctx.fillRect(x, btnY, 50, 50);
+                    this.ctx.fillRect(x, btnY, 60, 60);
+                    this.ctx.strokeStyle = '#fff';
+                    this.ctx.strokeRect(x, btnY, 60, 60);
                     this.ctx.fillStyle = '#fff';
-                    this.ctx.font = 'bold 24px monospace';
-                    this.ctx.fillText(String(i), x + 25, btnY + 35);
+                    this.ctx.font = 'bold 28px monospace';
+                    this.ctx.fillText(String(i), x + 30, btnY + 42);
                 }
 
                 this.ctx.fillStyle = '#888';
                 this.ctx.font = '14px monospace';
-                this.ctx.fillText('Press [1-4] to input sequence', centerX, 280);
+                this.ctx.fillText('Press [1-4] to input', centerX, contentY + 180);
             }
         } else if (core.puzzleType === 'match') {
             this.ctx.fillStyle = '#fff';
             this.ctx.font = '16px monospace';
-            this.ctx.fillText('Match the pairs:', centerX, 100);
-            this.ctx.fillText(`Matches: ${puzzle.matchesMade} / ${puzzle.matchesNeeded}`, centerX, 130);
+            this.ctx.fillText(`Match pairs: ${puzzle.matchesMade}/${puzzle.matchesNeeded}`, centerX, contentY);
 
             // Draw cards in 2x4 grid
-            const cardW = 60;
-            const cardH = 80;
-            const startX = centerX - cardW * 2;
-            const startY = 160;
+            const cardW = 55;
+            const cardH = 70;
+            const startX = centerX - (cardW + 10) * 2 + 5;
+            const startY = contentY + 30;
 
             for (let i = 0; i < 8; i++) {
                 const card = puzzle.cards[i];
@@ -1281,45 +1336,54 @@ export class Renderer {
                 if (card.matched) {
                     this.ctx.fillStyle = '#040';
                 } else if (card.revealed) {
-                    this.ctx.fillStyle = '#448';
+                    this.ctx.fillStyle = '#336';
                 } else {
-                    this.ctx.fillStyle = '#224';
+                    this.ctx.fillStyle = '#223';
                 }
                 this.ctx.fillRect(x, y, cardW, cardH);
-                this.ctx.strokeStyle = '#fff';
+
+                this.ctx.strokeStyle = card.revealed ? '#ff0' : (card.matched ? '#0f0' : '#555');
+                this.ctx.lineWidth = card.revealed ? 2 : 1;
                 this.ctx.strokeRect(x, y, cardW, cardH);
 
                 // Card number
                 this.ctx.fillStyle = '#888';
-                this.ctx.font = '12px monospace';
-                this.ctx.fillText(String(i + 1), x + 5, y + 15);
+                this.ctx.font = '11px monospace';
+                this.ctx.fillText(String(i + 1), x + 5, y + 14);
 
                 // Card symbol
                 if (card.revealed || card.matched) {
                     this.ctx.fillStyle = card.matched ? '#0f0' : '#ff0';
-                    this.ctx.font = 'bold 30px monospace';
-                    this.ctx.fillText(card.symbol, x + cardW / 2, y + cardH / 2 + 10);
+                    this.ctx.font = 'bold 28px monospace';
+                    this.ctx.fillText(card.symbol, x + cardW / 2, y + cardH / 2 + 8);
                 }
             }
+            this.ctx.lineWidth = 1;
 
             this.ctx.fillStyle = '#888';
             this.ctx.font = '14px monospace';
-            this.ctx.fillText('Press [1-8] to reveal cards', centerX, 380);
+            this.ctx.fillText('Press [1-8] to reveal cards', centerX, startY + 200);
         } else if (core.puzzleType === 'memory') {
             this.ctx.fillStyle = '#fff';
             this.ctx.font = '16px monospace';
 
             if (puzzle.showingPattern) {
-                this.ctx.fillText('Memorize the pattern:', centerX, 100);
-                this.ctx.fillText(`Time: ${Math.ceil(puzzle.showTimer / 60)}s`, centerX, 130);
+                this.ctx.fillText('Memorize the pattern!', centerX, contentY);
+                // Timer bar
+                const barW = 150;
+                const maxTime = 120 + core.puzzlesCompleted * 20;
+                this.ctx.fillStyle = '#333';
+                this.ctx.fillRect(centerX - barW / 2, contentY + 15, barW, 10);
+                this.ctx.fillStyle = puzzle.showTimer > 60 ? '#0f0' : (puzzle.showTimer > 30 ? '#ff0' : '#f00');
+                this.ctx.fillRect(centerX - barW / 2, contentY + 15, barW * (puzzle.showTimer / maxTime), 10);
             } else {
-                this.ctx.fillText('Recreate the pattern:', centerX, 100);
+                this.ctx.fillText('Recreate the pattern:', centerX, contentY);
             }
 
             // Draw 3x3 grid
-            const cellSize = 60;
+            const cellSize = 55;
             const gridStartX = centerX - cellSize * 1.5;
-            const gridStartY = 160;
+            const gridStartY = contentY + 45;
 
             for (let gy = 0; gy < 3; gy++) {
                 for (let gx = 0; gx < 3; gx++) {
@@ -1327,12 +1391,7 @@ export class Renderer {
                     const y = gridStartY + gy * cellSize;
                     const idx = gy * 3 + gx + 1;
 
-                    let filled = false;
-                    if (puzzle.showingPattern) {
-                        filled = puzzle.pattern[gy][gx];
-                    } else {
-                        filled = puzzle.playerPattern[gy][gx];
-                    }
+                    let filled = puzzle.showingPattern ? puzzle.pattern[gy][gx] : puzzle.playerPattern[gy][gx];
 
                     this.ctx.fillStyle = filled ? '#0af' : '#223';
                     this.ctx.fillRect(x, y, cellSize - 4, cellSize - 4);
@@ -1341,22 +1400,260 @@ export class Renderer {
 
                     // Number
                     this.ctx.fillStyle = '#666';
-                    this.ctx.font = '12px monospace';
-                    this.ctx.fillText(String(idx), x + 5, y + 15);
+                    this.ctx.font = '11px monospace';
+                    this.ctx.fillText(String(idx), x + 4, y + 13);
                 }
             }
 
             if (!puzzle.showingPattern) {
                 this.ctx.fillStyle = '#888';
                 this.ctx.font = '14px monospace';
-                this.ctx.fillText('Press [1-9] to toggle cells, [Enter] to submit', centerX, 360);
+                this.ctx.fillText('[1-9] toggle, [Enter] submit', centerX, gridStartY + 185);
+            }
+        } else if (core.puzzleType === 'math') {
+            // Timer bar
+            const barW = 200;
+            const pct = puzzle.timer / puzzle.timeLimit;
+            this.ctx.fillStyle = '#333';
+            this.ctx.fillRect(centerX - barW / 2, contentY, barW, 15);
+            this.ctx.fillStyle = pct > 0.5 ? '#0f0' : (pct > 0.25 ? '#ff0' : '#f00');
+            this.ctx.fillRect(centerX - barW / 2, contentY, barW * pct, 15);
+
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '10px monospace';
+            this.ctx.fillText(`${Math.ceil(puzzle.timer / 60)}s`, centerX, contentY + 11);
+
+            // Expression
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.font = 'bold 36px monospace';
+            this.ctx.fillText(puzzle.expression, centerX, contentY + 70);
+
+            // Options
+            const optY = contentY + 110;
+            const optW = 80;
+            for (let i = 0; i < puzzle.options.length; i++) {
+                const x = centerX - (puzzle.options.length * (optW + 10)) / 2 + i * (optW + 10);
+
+                this.ctx.fillStyle = '#334';
+                this.ctx.fillRect(x, optY, optW, 50);
+                this.ctx.strokeStyle = '#0af';
+                this.ctx.strokeRect(x, optY, optW, 50);
+
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = 'bold 20px monospace';
+                this.ctx.fillText(String(puzzle.options[i]), x + optW / 2, optY + 33);
+
+                this.ctx.fillStyle = '#888';
+                this.ctx.font = '12px monospace';
+                this.ctx.fillText(`[${i + 1}]`, x + optW / 2, optY + 48);
+            }
+
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText('Press [1-4] to select answer', centerX, optY + 80);
+        } else if (core.puzzleType === 'logic') {
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.font = 'bold 16px monospace';
+            this.ctx.fillText('SOLVE THE LOGIC:', centerX, contentY);
+
+            // Draw the clue with word wrap
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '14px monospace';
+            const lines = puzzle.clue.split('\n');
+            let lineY = contentY + 35;
+            for (const line of lines) {
+                this.ctx.fillText(line, centerX, lineY);
+                lineY += 22;
+            }
+
+            // Options
+            const optY = lineY + 20;
+            const optW = 100;
+            const optH = 40;
+            const totalW = puzzle.options.length * (optW + 10) - 10;
+
+            for (let i = 0; i < puzzle.options.length; i++) {
+                const x = centerX - totalW / 2 + i * (optW + 10);
+
+                this.ctx.fillStyle = '#334';
+                this.ctx.fillRect(x, optY, optW, optH);
+                this.ctx.strokeStyle = '#0af';
+                this.ctx.strokeRect(x, optY, optW, optH);
+
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = 'bold 16px monospace';
+                this.ctx.fillText(puzzle.options[i], x + optW / 2, optY + 26);
+
+                this.ctx.fillStyle = '#888';
+                this.ctx.font = '10px monospace';
+                this.ctx.fillText(`[${i + 1}]`, x + optW / 2, optY + 38);
+            }
+
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText('Press number to select answer', centerX, optY + 65);
+        } else if (core.puzzleType === 'cipher') {
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.font = 'bold 16px monospace';
+            this.ctx.fillText('DECODE THE CIPHER:', centerX, contentY);
+
+            // Encoded text
+            this.ctx.fillStyle = '#f80';
+            this.ctx.font = 'bold 32px monospace';
+            this.ctx.fillText(puzzle.encoded, centerX, contentY + 55);
+
+            // Hint
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText(`Hint: ${puzzle.hint}`, centerX, contentY + 85);
+
+            // Input box
+            const inputY = contentY + 120;
+            const inputW = 200;
+            this.ctx.fillStyle = '#223';
+            this.ctx.fillRect(centerX - inputW / 2, inputY, inputW, 40);
+            this.ctx.strokeStyle = '#0af';
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeRect(centerX - inputW / 2, inputY, inputW, 40);
+            this.ctx.lineWidth = 1;
+
+            // Player input
+            this.ctx.fillStyle = '#0f0';
+            this.ctx.font = 'bold 24px monospace';
+            const displayInput = puzzle.playerInput + '_'.repeat(Math.max(0, puzzle.maxLength - puzzle.playerInput.length));
+            this.ctx.fillText(displayInput, centerX, inputY + 28);
+
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText('Type letters, [Backspace] to delete, [Enter] to submit', centerX, inputY + 70);
+        } else if (core.puzzleType === 'slider') {
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '16px monospace';
+            this.ctx.fillText(`Arrange 1-2-3 in order (Moves: ${puzzle.moves})`, centerX, contentY);
+
+            // Draw 2x2 grid
+            const tileSize = 70;
+            const gridStartX = centerX - tileSize;
+            const gridStartY = contentY + 40;
+
+            for (let i = 0; i < 4; i++) {
+                const col = i % 2;
+                const row = Math.floor(i / 2);
+                const x = gridStartX + col * tileSize;
+                const y = gridStartY + row * tileSize;
+                const val = puzzle.tiles[i];
+
+                if (val === 0) {
+                    this.ctx.fillStyle = '#111';
+                } else {
+                    this.ctx.fillStyle = '#336';
+                }
+                this.ctx.fillRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
+                this.ctx.strokeStyle = val === 0 ? '#333' : '#0af';
+                this.ctx.strokeRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
+
+                if (val !== 0) {
+                    this.ctx.fillStyle = '#fff';
+                    this.ctx.font = 'bold 32px monospace';
+                    this.ctx.fillText(String(val), x + tileSize / 2, y + tileSize / 2 + 10);
+                }
+            }
+
+            // Goal display
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '12px monospace';
+            this.ctx.fillText('Goal: [1][2]', centerX, gridStartY + 160);
+            this.ctx.fillText('      [3][ ]', centerX, gridStartY + 175);
+
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText('Use Arrow keys or WASD to slide tiles', centerX, gridStartY + 210);
+        } else if (core.puzzleType === 'wire') {
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '16px monospace';
+            this.ctx.fillText('Connect matching colors:', centerX, contentY);
+
+            const wireY = contentY + 40;
+            const leftX = centerX - 150;
+            const rightX = centerX + 100;
+            const wireSpacing = 45;
+
+            // Draw left side connectors
+            for (let i = 0; i < 4; i++) {
+                const y = wireY + i * wireSpacing;
+                const color = puzzle.leftColors[i];
+                const isSelected = puzzle.selectedLeft === i;
+
+                // Connector circle
+                this.ctx.fillStyle = color;
+                this.ctx.beginPath();
+                this.ctx.arc(leftX, y + 15, 15, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                if (isSelected) {
+                    this.ctx.strokeStyle = '#fff';
+                    this.ctx.lineWidth = 3;
+                    this.ctx.beginPath();
+                    this.ctx.arc(leftX, y + 15, 18, 0, Math.PI * 2);
+                    this.ctx.stroke();
+                    this.ctx.lineWidth = 1;
+                }
+
+                // Number label
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = '14px monospace';
+                this.ctx.textAlign = 'right';
+                this.ctx.fillText(`[${i + 1}]`, leftX - 25, y + 20);
+            }
+
+            // Draw right side connectors
+            this.ctx.textAlign = 'left';
+            for (let i = 0; i < 4; i++) {
+                const y = wireY + i * wireSpacing;
+                const color = puzzle.rightColors[i];
+
+                this.ctx.fillStyle = color;
+                this.ctx.beginPath();
+                this.ctx.arc(rightX, y + 15, 15, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = '14px monospace';
+                this.ctx.fillText(`[${i + 1}]`, rightX + 25, y + 20);
+            }
+
+            // Draw connections
+            this.ctx.lineWidth = 4;
+            for (let i = 0; i < 4; i++) {
+                const conn = puzzle.connections[i];
+                if (conn !== -1) {
+                    const y1 = wireY + i * wireSpacing + 15;
+                    const y2 = wireY + conn * wireSpacing + 15;
+                    const color = puzzle.leftColors[i];
+
+                    this.ctx.strokeStyle = color;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(leftX + 15, y1);
+                    this.ctx.bezierCurveTo(centerX - 30, y1, centerX + 30, y2, rightX - 15, y2);
+                    this.ctx.stroke();
+                }
+            }
+            this.ctx.lineWidth = 1;
+            this.ctx.textAlign = 'center';
+
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '14px monospace';
+            if (puzzle.selectedLeft === -1) {
+                this.ctx.fillText('[1-4] Select left wire', centerX, wireY + 200);
+            } else {
+                this.ctx.fillText('[1-4] Connect to right, [0] Cancel', centerX, wireY + 200);
             }
         }
 
         // Escape hint
         this.ctx.fillStyle = '#666';
         this.ctx.font = '12px monospace';
-        this.ctx.fillText('[ESC] to leave puzzle', centerX, this.canvas.height - 20);
+        this.ctx.fillText('[ESC] to leave puzzle', centerX, this.canvas.height - 15);
     }
 
     drawClassSelection(classes: any[], selectedIndex: number) {
@@ -1639,7 +1936,7 @@ export class Renderer {
         this.ctx.fillText('[↑↓] Select | [ENTER] Confirm | [ESC] Cancel', this.canvas.width / 2, this.canvas.height - 30);
     }
 
-    drawNotifications(notifications: Array<{ message: string; timestamp: number; duration: number }>, enabled: boolean = true) {
+    drawNotifications(notifications: Array<{ message: string; timestamp: number; duration: number }>, enabled: boolean = true, combatMode: boolean = false) {
         if (notifications.length === 0) return;
 
         // Show toggle hint
@@ -1652,10 +1949,13 @@ export class Renderer {
         }
 
         const now = Date.now();
-        const centerX = this.canvas.width / 2;
-        let y = 120; // Start from top
+        // Position notifications at bottom-right during combat to not obstruct the arena
+        const baseX = combatMode ? this.canvas.width - 150 : this.canvas.width / 2;
+        let y = combatMode ? this.canvas.height - 100 : 120;
 
         this.ctx.textAlign = 'center';
+
+        this.ctx.textAlign = combatMode ? 'right' : 'center';
 
         for (const notif of notifications) {
             const elapsed = now - notif.timestamp;
@@ -1667,22 +1967,356 @@ export class Renderer {
                 alpha = remaining / 500;
             }
 
-            // Background
-            this.ctx.fillStyle = `rgba(0, 0, 0, ${0.8 * alpha})`;
+            // Measure text
+            this.ctx.font = combatMode ? 'bold 12px monospace' : 'bold 16px monospace';
             const textWidth = this.ctx.measureText(notif.message).width;
-            this.ctx.fillRect(centerX - textWidth / 2 - 20, y - 20, textWidth + 40, 35);
+            const boxWidth = textWidth + (combatMode ? 16 : 40);
+            const boxHeight = combatMode ? 24 : 35;
+            const boxX = combatMode ? baseX - boxWidth + textWidth / 2 : baseX - boxWidth / 2;
+
+            // Background
+            this.ctx.fillStyle = `rgba(0, 0, 0, ${0.7 * alpha})`;
+            this.ctx.fillRect(boxX, y - boxHeight / 2 - 5, boxWidth, boxHeight);
 
             // Border
             this.ctx.strokeStyle = `rgba(68, 170, 255, ${alpha})`;
-            this.ctx.lineWidth = 2;
-            this.ctx.strokeRect(centerX - textWidth / 2 - 20, y - 20, textWidth + 40, 35);
+            this.ctx.lineWidth = combatMode ? 1 : 2;
+            this.ctx.strokeRect(boxX, y - boxHeight / 2 - 5, boxWidth, boxHeight);
 
             // Text
             this.ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-            this.ctx.font = 'bold 16px monospace';
-            this.ctx.fillText(notif.message, centerX, y);
+            this.ctx.fillText(notif.message, baseX, y);
 
-            y += 45;
+            y += combatMode ? -30 : 45; // Stack upward in combat mode
         }
+        this.ctx.textAlign = 'left';
+    }
+
+    // ========== INK-STYLE COMBAT EFFECT HELPERS ==========
+
+    private drawInkSlash(x: number, y: number, angle: number, length: number, color: string, alpha: number, progress: number) {
+        // Ink-style slash: bezier curve with variable thickness (thick middle, tapered ends)
+        this.ctx.save();
+        this.ctx.translate(x, y);
+        this.ctx.rotate(angle);
+
+        // Animate the slash drawing over time
+        const slashProgress = Math.min(progress * 3, 1); // Slash completes in first third
+        const fadeOut = progress > 0.6 ? (1 - progress) / 0.4 : 1;
+
+        const drawnLength = length * slashProgress;
+        const halfLen = drawnLength / 2;
+
+        // Create tapered slash path
+        this.ctx.beginPath();
+
+        // Top edge of slash (curves up in middle)
+        this.ctx.moveTo(-halfLen, 0);
+        this.ctx.quadraticCurveTo(-halfLen * 0.3, -12 * fadeOut, 0, -15 * fadeOut); // Thick middle
+        this.ctx.quadraticCurveTo(halfLen * 0.3, -12 * fadeOut, halfLen, 0); // Taper to end
+
+        // Bottom edge of slash (curves down in middle)  
+        this.ctx.quadraticCurveTo(halfLen * 0.3, 12 * fadeOut, 0, 15 * fadeOut);
+        this.ctx.quadraticCurveTo(-halfLen * 0.3, 12 * fadeOut, -halfLen, 0);
+
+        this.ctx.closePath();
+
+        // Fill with gradient
+        const gradient = this.ctx.createLinearGradient(-halfLen, 0, halfLen, 0);
+        const baseColor = color || '#ffffff';
+        gradient.addColorStop(0, this.hexToRgba(baseColor, alpha * fadeOut * 0.3));
+        gradient.addColorStop(0.3, this.hexToRgba(baseColor, alpha * fadeOut * 0.9));
+        gradient.addColorStop(0.5, this.hexToRgba(baseColor, alpha * fadeOut));
+        gradient.addColorStop(0.7, this.hexToRgba(baseColor, alpha * fadeOut * 0.9));
+        gradient.addColorStop(1, this.hexToRgba(baseColor, alpha * fadeOut * 0.3));
+
+        this.ctx.fillStyle = gradient;
+        this.ctx.fill();
+
+        // Add ink splatter dots
+        if (slashProgress > 0.5) {
+            this.ctx.fillStyle = this.hexToRgba(baseColor, alpha * fadeOut * 0.6);
+            for (let i = 0; i < 5; i++) {
+                const dotX = (Math.random() - 0.5) * drawnLength;
+                const dotY = (Math.random() - 0.5) * 20;
+                const dotSize = Math.random() * 3 + 1;
+                this.ctx.beginPath();
+                this.ctx.arc(dotX, dotY, dotSize, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+        }
+
+        this.ctx.restore();
+    }
+
+    private drawShieldEffect(x: number, y: number, color: string, alpha: number, progress: number) {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+
+        const scale = 0.8 + progress * 0.4; // Grows slightly
+        const pulseAlpha = alpha * (0.7 + Math.sin(progress * Math.PI * 4) * 0.3);
+
+        // Hexagonal shield shape
+        this.ctx.beginPath();
+        const sides = 6;
+        const radius = 35 * scale;
+        for (let i = 0; i < sides; i++) {
+            const angle = (i / sides) * Math.PI * 2 - Math.PI / 2;
+            const px = Math.cos(angle) * radius;
+            const py = Math.sin(angle) * radius * 0.7; // Slightly flattened
+            if (i === 0) this.ctx.moveTo(px, py);
+            else this.ctx.lineTo(px, py);
+        }
+        this.ctx.closePath();
+
+        // Glowing fill
+        const gradient = this.ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
+        const baseColor = color || '#00aaff';
+        gradient.addColorStop(0, this.hexToRgba(baseColor, pulseAlpha * 0.1));
+        gradient.addColorStop(0.6, this.hexToRgba(baseColor, pulseAlpha * 0.3));
+        gradient.addColorStop(1, this.hexToRgba(baseColor, pulseAlpha * 0.5));
+
+        this.ctx.fillStyle = gradient;
+        this.ctx.fill();
+
+        // Border glow
+        this.ctx.strokeStyle = this.hexToRgba(baseColor, pulseAlpha);
+        this.ctx.lineWidth = 3;
+        this.ctx.stroke();
+
+        // Inner pattern
+        this.ctx.strokeStyle = this.hexToRgba(baseColor, pulseAlpha * 0.5);
+        this.ctx.lineWidth = 1;
+        this.ctx.beginPath();
+        this.ctx.moveTo(0, -radius * 0.5);
+        this.ctx.lineTo(0, radius * 0.5);
+        this.ctx.moveTo(-radius * 0.4, 0);
+        this.ctx.lineTo(radius * 0.4, 0);
+        this.ctx.stroke();
+
+        this.ctx.restore();
+    }
+
+    private drawHealEffect(x: number, y: number, color: string, alpha: number, progress: number) {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+
+        const baseColor = color || '#00ff88';
+        const particleCount = 8;
+
+        // Rising particles
+        for (let i = 0; i < particleCount; i++) {
+            const angle = (i / particleCount) * Math.PI * 2;
+            const spiralOffset = progress * Math.PI * 2;
+            const radius = 20 + Math.sin(angle * 3 + spiralOffset) * 10;
+            const rise = progress * 60;
+            const px = Math.cos(angle + spiralOffset) * radius * (1 - progress * 0.5);
+            const py = -rise + Math.sin(angle * 2) * 10;
+
+            const particleAlpha = alpha * (1 - progress * 0.7);
+            const size = 4 * (1 - progress * 0.5);
+
+            // Glow
+            const glow = this.ctx.createRadialGradient(px, py, 0, px, py, size * 3);
+            glow.addColorStop(0, this.hexToRgba(baseColor, particleAlpha));
+            glow.addColorStop(1, this.hexToRgba(baseColor, 0));
+            this.ctx.fillStyle = glow;
+            this.ctx.fillRect(px - size * 3, py - size * 3, size * 6, size * 6);
+
+            // Core
+            this.ctx.fillStyle = this.hexToRgba('#ffffff', particleAlpha);
+            this.ctx.beginPath();
+            this.ctx.arc(px, py, size, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+
+        // Central plus symbol
+        if (progress < 0.7) {
+            const plusAlpha = alpha * (1 - progress / 0.7);
+            this.ctx.strokeStyle = this.hexToRgba(baseColor, plusAlpha);
+            this.ctx.lineWidth = 4;
+            this.ctx.lineCap = 'round';
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, -15);
+            this.ctx.lineTo(0, 15);
+            this.ctx.moveTo(-15, 0);
+            this.ctx.lineTo(15, 0);
+            this.ctx.stroke();
+        }
+
+        this.ctx.restore();
+    }
+
+    private drawFireballEffect(x: number, y: number, color: string, secondary: string, alpha: number, progress: number) {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+
+        const coreColor = color || '#ffaa00';
+        const outerColor = secondary || '#ff4400';
+
+        // Explosion burst
+        const burstRadius = 20 + progress * 40;
+        const burstAlpha = alpha * (1 - progress * 0.8);
+
+        // Outer flame ring
+        const outerGlow = this.ctx.createRadialGradient(0, 0, burstRadius * 0.3, 0, 0, burstRadius);
+        outerGlow.addColorStop(0, this.hexToRgba(coreColor, burstAlpha * 0.8));
+        outerGlow.addColorStop(0.4, this.hexToRgba(outerColor, burstAlpha * 0.6));
+        outerGlow.addColorStop(0.7, this.hexToRgba('#ff0000', burstAlpha * 0.3));
+        outerGlow.addColorStop(1, this.hexToRgba('#ff0000', 0));
+
+        this.ctx.fillStyle = outerGlow;
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, burstRadius, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        // Flame tongues
+        const flameCount = 8;
+        for (let i = 0; i < flameCount; i++) {
+            const angle = (i / flameCount) * Math.PI * 2 + progress * Math.PI;
+            const flameLen = burstRadius * (0.5 + Math.random() * 0.5);
+
+            this.ctx.save();
+            this.ctx.rotate(angle);
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, 0);
+            this.ctx.quadraticCurveTo(flameLen * 0.3, -8, flameLen, 0);
+            this.ctx.quadraticCurveTo(flameLen * 0.3, 8, 0, 0);
+            this.ctx.fillStyle = this.hexToRgba(coreColor, burstAlpha * 0.7);
+            this.ctx.fill();
+            this.ctx.restore();
+        }
+
+        // Hot core
+        if (progress < 0.5) {
+            const coreAlpha = alpha * (1 - progress * 2);
+            this.ctx.fillStyle = this.hexToRgba('#ffffff', coreAlpha);
+            this.ctx.beginPath();
+            this.ctx.arc(0, 0, 8, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+
+        this.ctx.restore();
+    }
+
+    private drawPremonitionEffect(x: number, y: number, color: string, alpha: number) {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+
+        const baseColor = color || '#aa88ff';
+
+        // Eye shape
+        this.ctx.strokeStyle = this.hexToRgba(baseColor, alpha);
+        this.ctx.lineWidth = 2;
+
+        // Outer eye
+        this.ctx.beginPath();
+        this.ctx.moveTo(-25, 0);
+        this.ctx.quadraticCurveTo(0, -18, 25, 0);
+        this.ctx.quadraticCurveTo(0, 18, -25, 0);
+        this.ctx.stroke();
+
+        // Iris
+        this.ctx.fillStyle = this.hexToRgba(baseColor, alpha * 0.5);
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, 10, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.stroke();
+
+        // Pupil
+        this.ctx.fillStyle = this.hexToRgba('#000000', alpha);
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, 4, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        // Glow
+        const glow = this.ctx.createRadialGradient(0, 0, 5, 0, 0, 35);
+        glow.addColorStop(0, this.hexToRgba(baseColor, alpha * 0.3));
+        glow.addColorStop(1, this.hexToRgba(baseColor, 0));
+        this.ctx.fillStyle = glow;
+        this.ctx.fillRect(-35, -35, 70, 70);
+
+        this.ctx.restore();
+    }
+
+    private drawImpactEffect(x: number, y: number, color: string, alpha: number, progress: number) {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+
+        const baseColor = color || '#ffcc00';
+
+        // Shockwave rings
+        for (let ring = 0; ring < 3; ring++) {
+            const ringProgress = Math.max(0, progress - ring * 0.15);
+            if (ringProgress <= 0) continue;
+
+            const radius = 15 + ringProgress * 50 + ring * 10;
+            const ringAlpha = alpha * (1 - ringProgress) * (1 - ring * 0.3);
+
+            this.ctx.strokeStyle = this.hexToRgba(baseColor, ringAlpha);
+            this.ctx.lineWidth = 4 - ring;
+            this.ctx.beginPath();
+            this.ctx.arc(0, 0, radius, 0, Math.PI * 2);
+            this.ctx.stroke();
+        }
+
+        // Impact spikes
+        const spikeCount = 12;
+        for (let i = 0; i < spikeCount; i++) {
+            const angle = (i / spikeCount) * Math.PI * 2;
+            const spikeLen = 30 + progress * 30;
+            const spikeAlpha = alpha * (1 - progress * 0.8);
+
+            this.ctx.save();
+            this.ctx.rotate(angle);
+
+            // Ink-style spike (thick at base, pointed)
+            this.ctx.beginPath();
+            this.ctx.moveTo(8, -4);
+            this.ctx.lineTo(spikeLen, 0);
+            this.ctx.lineTo(8, 4);
+            this.ctx.closePath();
+
+            this.ctx.fillStyle = this.hexToRgba(baseColor, spikeAlpha);
+            this.ctx.fill();
+
+            this.ctx.restore();
+        }
+
+        // Central flash
+        if (progress < 0.3) {
+            const flashAlpha = alpha * (1 - progress / 0.3);
+            const flashGlow = this.ctx.createRadialGradient(0, 0, 0, 0, 0, 25);
+            flashGlow.addColorStop(0, this.hexToRgba('#ffffff', flashAlpha));
+            flashGlow.addColorStop(0.3, this.hexToRgba(baseColor, flashAlpha * 0.8));
+            flashGlow.addColorStop(1, this.hexToRgba(baseColor, 0));
+            this.ctx.fillStyle = flashGlow;
+            this.ctx.beginPath();
+            this.ctx.arc(0, 0, 25, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+
+        this.ctx.restore();
+    }
+
+    private hexToRgba(hex: string, alpha: number): string {
+        // Handle rgba format
+        if (hex.startsWith('rgba')) return hex;
+        if (hex.startsWith('rgb')) {
+            const match = hex.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+            if (match) {
+                return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${alpha})`;
+            }
+        }
+
+        // Handle hex
+        let c = hex.replace('#', '');
+        if (c.length === 3) {
+            c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+        }
+        const r = parseInt(c.substring(0, 2), 16);
+        const g = parseInt(c.substring(2, 4), 16);
+        const b = parseInt(c.substring(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 }

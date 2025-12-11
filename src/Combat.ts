@@ -363,7 +363,7 @@ export class CombatSystem {
             if (guardReduction < 1) message += ' (Partially blocked)';
             outcome = 'player_wins';
             comboGained = 1;
-            this.addEffect('fireball', 600, 200, '#f80');
+            this.addEffect('fireball', 600, 200, '#ffaa00', { secondary: '#ff4400' });
         }
         // Core combat triangle
         else if (playerAction === CombatAction.Strike || playerAction === CombatAction.HeavyStrike) {
@@ -384,7 +384,7 @@ export class CombatSystem {
                 message = `You catch them mid-feint! ${enemyDamage} damage!`;
                 outcome = 'player_wins';
                 comboGained = isHeavy ? 2 : 1;
-                this.addEffect('hit', 600, 200, '#ff0');
+                this.addEffect('hit', 600, 200, '#ff0', { angle: -Math.PI / 4, scale: 70 });
             }
             else if (enemyAction === CombatAction.Strike || enemyAction === CombatAction.HeavyStrike) {
                 // Clash! Speed determines winner
@@ -400,7 +400,7 @@ export class CombatSystem {
                     message = `Clash! Enemy faster - ${playerDamage} dmg taken, ${enemyDamage} dealt!`;
                     outcome = 'enemy_wins';
                 }
-                this.addEffect('clash', 400, 240, '#fff');
+                this.addEffect('clash', 400, 240, '#fff', { scale: 80 });
             }
             else {
                 // Enemy doing something else (heal etc) - free hit
@@ -408,7 +408,7 @@ export class CombatSystem {
                 message = `Clean hit! ${enemyDamage} damage!`;
                 outcome = 'player_wins';
                 comboGained = isHeavy ? 2 : 1;
-                this.addEffect('hit', 600, 200, '#ff0');
+                this.addEffect('hit', 600, 200, '#ff0', { angle: -Math.PI / 6, scale: 65 });
             }
         }
         else if (playerAction === CombatAction.Guard) {
@@ -581,14 +581,19 @@ export class CombatSystem {
         }
     }
 
-    addEffect(type: string, x: number, y: number, color: string) {
+    addEffect(type: string, x: number, y: number, color: string, options?: { angle?: number; scale?: number; targetX?: number; targetY?: number; secondary?: string }) {
         this.effects.push({
             type,
             x,
             y,
             color,
-            life: 30,
-            maxLife: 30
+            life: 45,
+            maxLife: 45,
+            angle: options?.angle ?? 0,
+            scale: options?.scale ?? 1,
+            targetX: options?.targetX ?? x,
+            targetY: options?.targetY ?? y,
+            secondary: options?.secondary ?? color
         });
     }
 
@@ -618,6 +623,12 @@ export interface CombatEffect {
     color: string;
     life: number;
     maxLife: number;
+    // Animation data for ink-style effects
+    angle?: number;        // Direction of the effect
+    scale?: number;        // Size multiplier
+    targetX?: number;      // Target position for directional effects
+    targetY?: number;
+    secondary?: string;    // Secondary color for gradients
 }
 
 // ============================================
@@ -1071,11 +1082,16 @@ export class MultiCombatSystem {
         }
     }
 
-    addEffect(type: string, x: number, y: number, color: string) {
+    addEffect(type: string, x: number, y: number, color: string, options?: { angle?: number; scale?: number; targetX?: number; targetY?: number; secondary?: string }) {
         this.effects.push({
             type, x, y, color,
             life: 30,
-            maxLife: 30
+            maxLife: 30,
+            angle: options?.angle,
+            scale: options?.scale,
+            targetX: options?.targetX,
+            targetY: options?.targetY,
+            secondary: options?.secondary
         });
     }
 

@@ -604,16 +604,22 @@ export class Enemy extends Entity {
     }
 }
 
+export type PuzzleType = 'sequence' | 'match' | 'memory' | 'math' | 'logic' | 'cipher' | 'slider' | 'wire';
+
 export class DungeonCore extends Entity {
     puzzleSolved: boolean = false;
-    puzzleType: 'sequence' | 'match' | 'memory';
+    puzzleType: PuzzleType;
     puzzleData: any;
 
     // Multi-puzzle system with lamps
     puzzlesCompleted: number = 0;
     puzzlesRequired: number = 4;
-    currentPuzzleTypes: ('sequence' | 'match' | 'memory')[] = [];
+    currentPuzzleTypes: PuzzleType[] = [];
     lampStates: boolean[] = [false, false, false, false];
+
+    // Animation/timing state (updated in game loop)
+    puzzleTimer: number = 0;
+    puzzleAnimState: string = 'idle';
 
     constructor(x: number, y: number, floor: number) {
         super(x, y, 'C', '#0ff', 'Dungeon Core');
@@ -623,10 +629,13 @@ export class DungeonCore extends Entity {
         this.stats.xp = 500 + floor * 100;
         this.stats.level = 99;
 
-        // Generate 4 random puzzle types
-        const types: ('sequence' | 'match' | 'memory')[] = ['sequence', 'match', 'memory'];
+        // All available puzzle types
+        const types: PuzzleType[] = ['sequence', 'match', 'memory', 'math', 'logic', 'cipher', 'slider', 'wire'];
+
+        // Generate 4 random puzzle types (no repeats if possible)
+        const shuffled = [...types].sort(() => Math.random() - 0.5);
         for (let i = 0; i < this.puzzlesRequired; i++) {
-            this.currentPuzzleTypes.push(types[getRandomInt(0, types.length)]);
+            this.currentPuzzleTypes.push(shuffled[i % shuffled.length]);
         }
 
         // Start with first puzzle
@@ -635,9 +644,12 @@ export class DungeonCore extends Entity {
     }
 
     initPuzzle() {
+        this.puzzleTimer = 0;
+        this.puzzleAnimState = 'showing';
+
         if (this.puzzleType === 'sequence') {
             // Player must input correct sequence (like Simon)
-            const length = 4 + Math.floor(this.puzzlesCompleted); // Gets harder
+            const length = 4 + Math.floor(this.puzzlesCompleted);
             const sequence: number[] = [];
             for (let i = 0; i < length; i++) {
                 sequence.push(getRandomInt(1, 5)); // 1-4 keys
@@ -646,12 +658,13 @@ export class DungeonCore extends Entity {
                 sequence,
                 currentIndex: 0,
                 showingSequence: true,
-                showIndex: 0,
-                showTimer: 0
+                showIndex: -1, // Start at -1, will advance to 0 on first tick
+                showTimer: 0,
+                displayDuration: 40 // Frames per symbol
             };
         } else if (this.puzzleType === 'match') {
             // Match pairs of symbols
-            const symbols = ['A', 'B', 'C', 'D', 'E', 'F'];
+            const symbols = ['♠', '♥', '♦', '♣', '★', '◆', '●', '▲'];
             const pairs: string[] = [];
             for (let i = 0; i < 4; i++) {
                 pairs.push(symbols[i], symbols[i]);
@@ -665,13 +678,14 @@ export class DungeonCore extends Entity {
                 cards: pairs.map(s => ({ symbol: s, revealed: false, matched: false })),
                 firstSelection: -1,
                 matchesNeeded: 4,
-                matchesMade: 0
+                matchesMade: 0,
+                hideTimer: 0
             };
-        } else {
+            this.puzzleAnimState = 'input';
+        } else if (this.puzzleType === 'memory') {
             // Memory: remember and reproduce pattern
             const gridSize = 3;
             const pattern: boolean[][] = [];
-            // Ensure at least 2 and at most 5 cells are lit
             let litCount = 0;
             for (let y = 0; y < gridSize; y++) {
                 pattern.push([]);
@@ -681,8 +695,7 @@ export class DungeonCore extends Entity {
                     if (lit) litCount++;
                 }
             }
-            // Ensure minimum cells lit
-            while (litCount < 2) {
+            while (litCount < 3) {
                 const y = getRandomInt(0, gridSize);
                 const x = getRandomInt(0, gridSize);
                 if (!pattern[y][x]) {
@@ -695,8 +708,194 @@ export class DungeonCore extends Entity {
                 playerPattern: Array(gridSize).fill(null).map(() => Array(gridSize).fill(false)),
                 gridSize,
                 showingPattern: true,
-                showTimer: 90 + this.puzzlesCompleted * 10 // More time for later puzzles
+                showTimer: 120 + this.puzzlesCompleted * 20 // ~2 seconds + bonus
             };
+        } else if (this.puzzleType === 'math') {
+            // Math puzzle: solve arithmetic
+            const difficulty = 1 + this.puzzlesCompleted;
+            const ops = ['+', '-', '*'];
+            const op = ops[getRandomInt(0, ops.length)];
+            let a: number, b: number, answer: number;
+
+            if (op === '+') {
+                a = getRandomInt(5, 20 + difficulty * 10);
+                b = getRandomInt(5, 20 + difficulty * 10);
+                answer = a + b;
+            } else if (op === '-') {
+                a = getRandomInt(20, 50 + difficulty * 10);
+                b = getRandomInt(5, a - 1);
+                answer = a - b;
+            } else {
+                a = getRandomInt(2, 8 + difficulty);
+                b = getRandomInt(2, 8 + difficulty);
+                answer = a * b;
+            }
+
+            // Generate multiple choice options
+            const options = [answer];
+            while (options.length < 4) {
+                const offset = getRandomInt(-10, 11);
+                const option = answer + offset;
+                if (option > 0 && !options.includes(option)) {
+                    options.push(option);
+                }
+            }
+            // Shuffle options
+            options.sort(() => Math.random() - 0.5);
+
+            this.puzzleData = {
+                expression: `${a} ${op} ${b} = ?`,
+                answer,
+                options,
+                selectedOption: -1,
+                timeLimit: 600, // 10 seconds
+                timer: 600
+            };
+            this.puzzleAnimState = 'input';
+        } else if (this.puzzleType === 'logic') {
+            // Logic puzzle: determine correct statement
+            const puzzles = [
+                {
+                    clue: "If A is true, then B is false.\nA is true.\nWhat is B?",
+                    answer: 'false',
+                    options: ['true', 'false']
+                },
+                {
+                    clue: "All warriors have swords.\nThis person has a sword.\nAre they definitely a warrior?",
+                    answer: 'no',
+                    options: ['yes', 'no']
+                },
+                {
+                    clue: "The chest is either red or blue.\nThe chest is not red.\nWhat color is it?",
+                    answer: 'blue',
+                    options: ['red', 'blue', 'green']
+                },
+                {
+                    clue: "If it rains, the ground is wet.\nThe ground is wet.\nDid it definitely rain?",
+                    answer: 'no',
+                    options: ['yes', 'no']
+                },
+                {
+                    clue: "X comes before Y.\nY comes before Z.\nWhat comes first?",
+                    answer: 'X',
+                    options: ['X', 'Y', 'Z']
+                },
+                {
+                    clue: "One of these is lying:\nA says: 'B is lying'\nB says: 'A is lying'\nWho is lying?",
+                    answer: 'both',
+                    options: ['A', 'B', 'both', 'neither']
+                },
+                {
+                    clue: "Every mage knows fireball.\nThis person knows fireball.\nAre they definitely a mage?",
+                    answer: 'no',
+                    options: ['yes', 'no']
+                },
+                {
+                    clue: "Only rogues can pick locks.\nThis chest was picked.\nWho opened it?",
+                    answer: 'rogue',
+                    options: ['warrior', 'mage', 'rogue']
+                }
+            ];
+
+            const selected = puzzles[getRandomInt(0, puzzles.length)];
+            this.puzzleData = {
+                clue: selected.clue,
+                answer: selected.answer,
+                options: selected.options,
+                selectedOption: -1
+            };
+            this.puzzleAnimState = 'input';
+        } else if (this.puzzleType === 'cipher') {
+            // Cipher: decode a simple substitution
+            const words = ['FIRE', 'GOLD', 'SWORD', 'MAGIC', 'RUNE', 'HERO', 'QUEST', 'DARK'];
+            const word = words[getRandomInt(0, words.length)];
+            const shift = getRandomInt(1, 5);
+
+            let encoded = '';
+            for (const char of word) {
+                const code = char.charCodeAt(0);
+                const shifted = ((code - 65 + shift) % 26) + 65;
+                encoded += String.fromCharCode(shifted);
+            }
+
+            this.puzzleData = {
+                encoded,
+                answer: word,
+                shift,
+                hint: `Each letter is shifted +${shift} in the alphabet`,
+                playerInput: '',
+                maxLength: word.length
+            };
+            this.puzzleAnimState = 'input';
+        } else if (this.puzzleType === 'slider') {
+            // Sliding tile puzzle (simplified 2x2)
+            // Goal: arrange numbers 1-3 with empty in position 4
+            const tiles = [1, 2, 3, 0]; // 0 = empty
+            // Shuffle with valid moves
+            for (let i = 0; i < 10 + this.puzzlesCompleted * 5; i++) {
+                const emptyIdx = tiles.indexOf(0);
+                const neighbors: number[] = [];
+                if (emptyIdx % 2 !== 0) neighbors.push(emptyIdx - 1); // left
+                if (emptyIdx % 2 !== 1) neighbors.push(emptyIdx + 1); // right
+                if (emptyIdx >= 2) neighbors.push(emptyIdx - 2); // up
+                if (emptyIdx < 2) neighbors.push(emptyIdx + 2); // down
+
+                const swapIdx = neighbors[getRandomInt(0, neighbors.length)];
+                [tiles[emptyIdx], tiles[swapIdx]] = [tiles[swapIdx], tiles[emptyIdx]];
+            }
+
+            this.puzzleData = {
+                tiles,
+                moves: 0,
+                goal: [1, 2, 3, 0]
+            };
+            this.puzzleAnimState = 'input';
+        } else if (this.puzzleType === 'wire') {
+            // Wire connection puzzle: match colors on left to right
+            const colors = ['#f00', '#0f0', '#00f', '#ff0'];
+            const shuffledRight = [...colors].sort(() => Math.random() - 0.5);
+
+            this.puzzleData = {
+                leftColors: colors,
+                rightColors: shuffledRight,
+                connections: [-1, -1, -1, -1], // left[i] connects to right[connections[i]]
+                selectedLeft: -1,
+                correctConnections: colors.map(c => shuffledRight.indexOf(c))
+            };
+            this.puzzleAnimState = 'input';
+        }
+    }
+
+    // Update puzzle animations (call from game loop)
+    updatePuzzle(): void {
+        if (this.puzzleType === 'sequence' && this.puzzleData.showingSequence) {
+            this.puzzleData.showTimer++;
+            if (this.puzzleData.showTimer >= this.puzzleData.displayDuration) {
+                this.puzzleData.showTimer = 0;
+                this.puzzleData.showIndex++;
+                if (this.puzzleData.showIndex >= this.puzzleData.sequence.length) {
+                    this.puzzleData.showingSequence = false;
+                    this.puzzleAnimState = 'input';
+                }
+            }
+        } else if (this.puzzleType === 'memory' && this.puzzleData.showingPattern) {
+            this.puzzleData.showTimer--;
+            if (this.puzzleData.showTimer <= 0) {
+                this.puzzleData.showingPattern = false;
+                this.puzzleAnimState = 'input';
+            }
+        } else if (this.puzzleType === 'math') {
+            this.puzzleData.timer--;
+        } else if (this.puzzleType === 'match' && this.puzzleData.hideTimer > 0) {
+            this.puzzleData.hideTimer--;
+            if (this.puzzleData.hideTimer <= 0) {
+                // Hide non-matched revealed cards
+                for (const card of this.puzzleData.cards) {
+                    if (card.revealed && !card.matched) {
+                        card.revealed = false;
+                    }
+                }
+            }
         }
     }
 
