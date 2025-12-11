@@ -619,3 +619,480 @@ export interface CombatEffect {
     life: number;
     maxLife: number;
 }
+
+// ============================================
+// MULTI-ENEMY COMBAT SYSTEM - Swarm Battles
+// ============================================
+
+export const MultiCombatPhase = {
+    SelectTarget: 0,    // Player chooses which enemy to target
+    SelectAction: 1,    // Player chooses action
+    ShowPremonition: 2, // If premonition used
+    Resolution: 3,      // Actions resolve
+    Result: 4,          // Show result
+    Victory: 5,
+    Defeat: 6
+} as const;
+
+export type MultiCombatPhase = typeof MultiCombatPhase[keyof typeof MultiCombatPhase];
+
+export interface EnemyCombatState {
+    enemy: Enemy;
+    stamina: number;
+    maxStamina: number;
+    pattern: number[];
+    patternIndex: number;
+    pendingAction: CombatAction;
+    lastDamage: number;
+    isDead: boolean;
+}
+
+export class MultiCombatSystem {
+    player: Player;
+    enemies: EnemyCombatState[] = [];
+
+    phase: MultiCombatPhase = MultiCombatPhase.SelectTarget;
+    turn: number = 1;
+
+    // Player resources
+    playerStamina: number = 100;
+    maxPlayerStamina: number = 100;
+
+    // Combo system
+    comboPoints: number = 0;
+    maxComboPoints: number = 3;
+    lastPlayerAction: CombatAction = CombatAction.None;
+
+    // Premonition
+    premonitionActive: boolean = false;
+
+    // Current state
+    selectedTargetIndex: number = 0;
+    selectedAction: CombatAction | null = null;
+    lastResult: CombatResult | null = null;
+
+    // Animation/timing
+    phaseTimer: number = 0;
+    animationProgress: number = 0;
+
+    // Combat log
+    log: string[] = [];
+
+    // Visual effects
+    effects: CombatEffect[] = [];
+
+    constructor(player: Player, enemies: Enemy[]) {
+        this.player = player;
+
+        // Initialize enemy combat states
+        for (const enemy of enemies) {
+            const maxStamina = 60 + enemy.stats.level * 8;
+            this.enemies.push({
+                enemy,
+                stamina: maxStamina,
+                maxStamina,
+                pattern: this.generatePattern(enemy),
+                patternIndex: 0,
+                pendingAction: CombatAction.None,
+                lastDamage: 0,
+                isDead: false
+            });
+        }
+
+        this.log.push(`-- Swarm Battle! ${enemies.length} enemies! --`);
+        this.log.push(`Use UP/DOWN to select target, then choose action`);
+    }
+
+    generatePattern(enemy: Enemy): number[] {
+        const patterns = [
+            [CombatAction.Strike, CombatAction.Strike, CombatAction.Guard],
+            [CombatAction.Guard, CombatAction.Feint, CombatAction.Strike],
+            [CombatAction.Feint, CombatAction.Strike, CombatAction.Feint],
+            [CombatAction.Strike, CombatAction.Guard, CombatAction.Strike],
+        ];
+        return patterns[enemy.stats.level % patterns.length];
+    }
+
+    getAliveEnemies(): EnemyCombatState[] {
+        return this.enemies.filter(e => !e.isDead && e.enemy.stats.hp > 0);
+    }
+
+    getEnemyAction(state: EnemyCombatState): CombatAction {
+        const hpRatio = state.enemy.stats.hp / state.enemy.stats.maxHp;
+        const staminaRatio = state.stamina / state.maxStamina;
+
+        if (staminaRatio < 0.2) return CombatAction.Guard;
+        if (hpRatio < 0.3) {
+            return Math.random() < 0.5 ? CombatAction.Strike : CombatAction.Guard;
+        }
+
+        let action = state.pattern[state.patternIndex % state.pattern.length] as CombatAction;
+        state.patternIndex++;
+
+        if (Math.random() < 0.25) {
+            const options: CombatAction[] = [CombatAction.Strike, CombatAction.Guard, CombatAction.Feint];
+            action = options[getRandomInt(0, options.length)];
+        }
+
+        const actionDef = ACTIONS[action];
+        if (actionDef.staminaCost > state.stamina) return CombatAction.Guard;
+
+        return action;
+    }
+
+    canUseAction(action: CombatAction): boolean {
+        const def = ACTIONS[action];
+        if (def.staminaCost > this.playerStamina) return false;
+        if (def.manaCost > this.player.stats.mana) return false;
+        if (action === CombatAction.Execute && this.comboPoints < this.maxComboPoints) return false;
+        return true;
+    }
+
+    handleInput(key: string) {
+        if (this.phase === MultiCombatPhase.Victory || this.phase === MultiCombatPhase.Defeat) {
+            return;
+        }
+
+        if (this.phase === MultiCombatPhase.Result) {
+            this.advanceToNextTurn();
+            return;
+        }
+
+        if (this.phase === MultiCombatPhase.Resolution) return;
+
+        if (this.phase === MultiCombatPhase.ShowPremonition) {
+            this.phase = MultiCombatPhase.SelectAction;
+            return;
+        }
+
+        // Target selection
+        if (this.phase === MultiCombatPhase.SelectTarget) {
+            const aliveEnemies = this.getAliveEnemies();
+            if (key === 'ArrowUp' || key === 'w') {
+                this.selectedTargetIndex = Math.max(0, this.selectedTargetIndex - 1);
+            } else if (key === 'ArrowDown' || key === 's') {
+                this.selectedTargetIndex = Math.min(aliveEnemies.length - 1, this.selectedTargetIndex + 1);
+            } else if (key === 'Enter' || key === ' ') {
+                this.phase = MultiCombatPhase.SelectAction;
+            }
+            return;
+        }
+
+        // Action selection
+        if (this.phase === MultiCombatPhase.SelectAction) {
+            const upperKey = key.toUpperCase();
+
+            // Tab to go back to target selection
+            if (key === 'Tab' || key === 'Escape') {
+                this.phase = MultiCombatPhase.SelectTarget;
+                return;
+            }
+
+            for (const actionId of Object.keys(ACTIONS)) {
+                const action = ACTIONS[Number(actionId) as CombatAction];
+                if (action.key === upperKey || action.key === key) {
+                    if (action.id === CombatAction.None) continue;
+
+                    if (action.id === CombatAction.Premonition) {
+                        if (this.canUseAction(CombatAction.Premonition)) {
+                            this.usePremonition();
+                        } else {
+                            this.log.push("Not enough mana for Premonition!");
+                        }
+                        return;
+                    }
+
+                    if (this.canUseAction(action.id)) {
+                        this.selectAction(action.id);
+                    } else {
+                        if (action.staminaCost > this.playerStamina) {
+                            this.log.push(`Not enough stamina for ${action.name}!`);
+                        } else if (action.manaCost > this.player.stats.mana) {
+                            this.log.push(`Not enough mana for ${action.name}!`);
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    usePremonition() {
+        this.player.stats.mana -= ACTIONS[CombatAction.Premonition].manaCost;
+        this.premonitionActive = true;
+
+        // Show what all enemies will do
+        const aliveEnemies = this.getAliveEnemies();
+        for (const state of aliveEnemies) {
+            state.pendingAction = this.getEnemyAction(state);
+            state.patternIndex--;
+            this.log.push(`[PREMONITION] ${state.enemy.name} will use ${ACTIONS[state.pendingAction].name}`);
+        }
+
+        this.phase = MultiCombatPhase.ShowPremonition;
+        this.addEffect('premonition', 400, 240, '#a0f');
+    }
+
+    selectAction(action: CombatAction) {
+        this.selectedAction = action;
+
+        // Get all enemy actions
+        const aliveEnemies = this.getAliveEnemies();
+        for (const state of aliveEnemies) {
+            if (this.premonitionActive) {
+                // Already set from premonition
+            } else {
+                state.pendingAction = this.getEnemyAction(state);
+            }
+            const actionDef = ACTIONS[state.pendingAction];
+            state.stamina -= actionDef.staminaCost;
+        }
+        this.premonitionActive = false;
+
+        // Pay player costs
+        const actionDef = ACTIONS[action];
+        this.playerStamina -= actionDef.staminaCost;
+        this.player.stats.mana -= actionDef.manaCost;
+
+        this.phase = MultiCombatPhase.Resolution;
+        this.phaseTimer = 60;
+        this.animationProgress = 0;
+    }
+
+    resolveActions(): CombatResult {
+        const playerAction = this.selectedAction!;
+        const playerDef = ACTIONS[playerAction];
+        const aliveEnemies = this.getAliveEnemies();
+        const target = aliveEnemies[this.selectedTargetIndex];
+
+        let totalPlayerDamage = 0;
+        let totalEnemyDamage = 0;
+        let playerHealed = 0;
+        let outcome: CombatResult['outcome'] = 'neutral';
+        let message = '';
+        let criticalHit = false;
+        let comboGained = 0;
+
+        // Handle player action vs targeted enemy
+        const targetAction = target.pendingAction;
+
+        const playerBaseDmg = playerDef.baseDamage * this.player.stats.attack;
+
+        // Simplified resolution for multi-combat (same logic but condensed)
+        if (playerAction === CombatAction.Heal) {
+            playerHealed = 15 + Math.floor(this.player.stats.level * 2);
+            this.player.heal(playerHealed);
+            message = `Healed ${playerHealed} HP!`;
+            this.addEffect('heal', 200, 300, '#0f0');
+        } else if (playerAction === CombatAction.Execute) {
+            totalEnemyDamage = Math.floor(playerBaseDmg * (1 + this.comboPoints * 0.5));
+            criticalHit = true;
+            this.comboPoints = 0;
+            message = `EXECUTE on ${target.enemy.name}! ${totalEnemyDamage} damage!`;
+            outcome = 'player_wins';
+            this.addEffect('execute', 600, 200, '#f00');
+        } else if (playerAction === CombatAction.Fireball) {
+            // AoE - hits all enemies!
+            message = `FIREBALL hits all enemies!`;
+            for (const state of aliveEnemies) {
+                const guardReduction = state.pendingAction === CombatAction.Guard ? 0.5 : 1.0;
+                const dmg = Math.floor(playerBaseDmg * 0.7 * guardReduction);
+                state.enemy.stats.hp -= Math.max(1, dmg - state.enemy.stats.defense);
+                state.lastDamage = dmg;
+                message += ` ${state.enemy.name}:${dmg}`;
+            }
+            outcome = 'player_wins';
+            comboGained = 1;
+            this.addEffect('fireball', 400, 200, '#f80');
+        } else {
+            // Standard attack on target
+            if (targetAction === CombatAction.Guard && playerAction !== CombatAction.Feint) {
+                totalEnemyDamage = Math.floor(playerBaseDmg * 0.2);
+                message = `${target.enemy.name} blocks! Chip: ${totalEnemyDamage}`;
+            } else if (targetAction === CombatAction.Feint &&
+                (playerAction === CombatAction.Strike || playerAction === CombatAction.HeavyStrike)) {
+                totalEnemyDamage = Math.floor(playerBaseDmg * 1.2);
+                message = `Caught ${target.enemy.name} mid-feint! ${totalEnemyDamage}!`;
+                outcome = 'player_wins';
+                comboGained = playerAction === CombatAction.HeavyStrike ? 2 : 1;
+            } else if (playerAction === CombatAction.Feint && targetAction === CombatAction.Guard) {
+                totalEnemyDamage = Math.floor(this.player.stats.attack * 0.8);
+                message = `Feint breaks ${target.enemy.name}'s guard! ${totalEnemyDamage}!`;
+                outcome = 'player_wins';
+                comboGained = 1;
+            } else {
+                totalEnemyDamage = Math.floor(playerBaseDmg);
+                message = `Hit ${target.enemy.name} for ${totalEnemyDamage}!`;
+                outcome = 'player_wins';
+                comboGained = 1;
+            }
+        }
+
+        // Apply damage to target (if not AoE)
+        if (playerAction !== CombatAction.Fireball && totalEnemyDamage > 0) {
+            if (Math.random() < this.player.stats.critChance) {
+                totalEnemyDamage = Math.floor(totalEnemyDamage * 1.5);
+                criticalHit = true;
+                message += ' CRIT!';
+            }
+            totalEnemyDamage = Math.max(1, totalEnemyDamage - target.enemy.stats.defense);
+            target.enemy.stats.hp -= totalEnemyDamage;
+            target.lastDamage = totalEnemyDamage;
+
+            if (this.player.stats.lifesteal > 0) {
+                const healed = Math.floor(totalEnemyDamage * this.player.stats.lifesteal);
+                this.player.heal(healed);
+            }
+        }
+
+        // All enemies attack the player!
+        for (const state of aliveEnemies) {
+            if (state.enemy.stats.hp <= 0) continue;
+
+            const enemyDef = ACTIONS[state.pendingAction];
+            const enemyBaseDmg = enemyDef.baseDamage * state.enemy.stats.attack;
+
+            let dmgToPlayer = 0;
+
+            // Simplified enemy attack resolution
+            if (state.pendingAction === CombatAction.Strike ||
+                state.pendingAction === CombatAction.HeavyStrike) {
+                if (playerAction === CombatAction.Guard) {
+                    dmgToPlayer = Math.floor(enemyBaseDmg * 0.2);
+                } else if (playerAction === CombatAction.Feint) {
+                    dmgToPlayer = Math.floor(enemyBaseDmg * 1.3);
+                } else {
+                    dmgToPlayer = Math.floor(enemyBaseDmg * 0.7); // Reduced since multiple enemies
+                }
+            }
+
+            if (dmgToPlayer > 0) {
+                dmgToPlayer = Math.max(1, dmgToPlayer - this.player.stats.defense);
+                totalPlayerDamage += dmgToPlayer;
+            }
+        }
+
+        if (totalPlayerDamage > 0) {
+            this.player.stats.hp -= totalPlayerDamage;
+            message += ` Took ${totalPlayerDamage} total from swarm!`;
+        }
+
+        // Check deaths
+        if (this.player.stats.hp <= 0) {
+            this.player.stats.hp = 0;
+            this.player.isDead = true;
+        }
+
+        for (const state of this.enemies) {
+            if (state.enemy.stats.hp <= 0) {
+                state.enemy.stats.hp = 0;
+                state.enemy.isDead = true;
+                state.isDead = true;
+            }
+        }
+
+        // Update combo
+        this.comboPoints = Math.min(this.maxComboPoints, this.comboPoints + comboGained);
+        this.lastPlayerAction = playerAction;
+
+        return {
+            playerAction,
+            enemyAction: targetAction,
+            playerDamage: totalPlayerDamage,
+            enemyDamage: totalEnemyDamage,
+            playerHealed,
+            outcome,
+            message,
+            criticalHit,
+            comboGained
+        };
+    }
+
+    advanceToNextTurn() {
+        // Check all enemies dead
+        const aliveEnemies = this.getAliveEnemies();
+        if (aliveEnemies.length === 0) {
+            this.phase = MultiCombatPhase.Victory;
+            this.log.push(`** Victory! ** All enemies defeated!`);
+            return;
+        }
+
+        if (this.player.isDead) {
+            this.phase = MultiCombatPhase.Defeat;
+            this.log.push(`** Defeat! ** Overwhelmed by the swarm...`);
+            return;
+        }
+
+        // Adjust target index if current target died
+        if (this.selectedTargetIndex >= aliveEnemies.length) {
+            this.selectedTargetIndex = aliveEnemies.length - 1;
+        }
+
+        // Stamina regen
+        this.playerStamina = Math.min(this.maxPlayerStamina, this.playerStamina + 12);
+        for (const state of aliveEnemies) {
+            state.stamina = Math.min(state.maxStamina, state.stamina + 12);
+        }
+
+        this.player.stats.mana = Math.min(this.player.stats.maxMana, this.player.stats.mana + 2);
+
+        this.selectedAction = null;
+        this.lastResult = null;
+        this.turn++;
+        this.phase = MultiCombatPhase.SelectTarget;
+    }
+
+    update() {
+        // Update effects
+        for (let i = this.effects.length - 1; i >= 0; i--) {
+            this.effects[i].life--;
+            if (this.effects[i].life <= 0) {
+                this.effects.splice(i, 1);
+            }
+        }
+
+        if (this.phase === MultiCombatPhase.Resolution) {
+            this.animationProgress++;
+            this.phaseTimer--;
+
+            if (this.phaseTimer <= 0) {
+                this.lastResult = this.resolveActions();
+                this.log.push(this.lastResult.message);
+                this.phase = MultiCombatPhase.Result;
+                this.phaseTimer = 90;
+            }
+        }
+
+        if (this.phase === MultiCombatPhase.Result) {
+            this.phaseTimer--;
+            if (this.phaseTimer <= 0) {
+                this.advanceToNextTurn();
+            }
+        }
+    }
+
+    addEffect(type: string, x: number, y: number, color: string) {
+        this.effects.push({
+            type, x, y, color,
+            life: 30,
+            maxLife: 30
+        });
+    }
+
+    endCombat() {
+        // Cleanup
+    }
+
+    getAvailableActions(): CombatActionDef[] {
+        return [
+            ACTIONS[CombatAction.Strike],
+            ACTIONS[CombatAction.Guard],
+            ACTIONS[CombatAction.Feint],
+            ACTIONS[CombatAction.HeavyStrike],
+            ACTIONS[CombatAction.Heal],
+            ACTIONS[CombatAction.Fireball],
+            ACTIONS[CombatAction.Premonition],
+            ACTIONS[CombatAction.Execute]
+        ];
+    }
+}

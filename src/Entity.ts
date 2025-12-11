@@ -3,6 +3,10 @@ import { ItemType, clamp, TrapType, getRandomInt } from './utils';
 import type { Point } from './utils';
 import { EquipSlot, MaterialType } from './Equipment';
 import type { Equipment } from './Equipment';
+import { getEnemySpriteForFloor, getBossSpriteForFloor } from './EnemySprites';
+import type { SpriteData } from './Sprite';
+import type { MulticlassData } from './SkillTree';
+import { SKILL_TREES, calculateSkillBonuses, getUnlockedAbilities, getActivePassives } from './SkillTree';
 
 export interface Stats {
     hp: number;
@@ -144,6 +148,16 @@ export class Player extends Entity {
     equipped: EquippedGear;
     baseStats: Stats;
 
+    // Skill tree and multiclass system
+    multiclass: MulticlassData;
+    unlockedAbilities: string[] = [];
+    activePassives: string[] = [];
+    classId: string = 'default_player';
+    sprite: SpriteData | null = null;
+
+    // Used to track second wind for adventurer
+    secondWindUsed: boolean = false;
+
     constructor(x: number, y: number) {
         super(x, y, '@', '#4af', 'Player');
         this.stats.hp = 50;
@@ -155,6 +169,15 @@ export class Player extends Entity {
 
         // Store base stats before equipment
         this.baseStats = { ...this.stats };
+
+        // Initialize multiclass data
+        this.multiclass = {
+            primaryClass: 'default_player',
+            secondaryClass: null,
+            primarySkills: new Map(),
+            secondarySkills: new Map(),
+            multiclassLevel: 0
+        };
 
         this.inventory = {
             equipment: [],
@@ -188,6 +211,70 @@ export class Player extends Entity {
             currentCooldown: 0,
             description: 'Deal 15 DMG (Range 5)'
         });
+    }
+
+    // Set player class and update multiclass data
+    setClass(classId: string, sprite?: SpriteData) {
+        this.classId = classId;
+        this.multiclass.primaryClass = classId;
+        if (sprite) {
+            this.sprite = sprite;
+            this.char = sprite.char;
+            this.color = sprite.color;
+        }
+    }
+
+    // Learn a skill from the skill tree
+    learnSkill(skillId: string, isSecondary: boolean = false): boolean {
+        if (this.stats.skillPoints <= 0) return false;
+
+        const treeId = isSecondary ? this.multiclass.secondaryClass : this.multiclass.primaryClass;
+        if (!treeId) return false;
+
+        const tree = SKILL_TREES.get(treeId);
+        if (!tree) return false;
+
+        const node = tree.nodes.find(n => n.id === skillId);
+        if (!node) return false;
+
+        const skillMap = isSecondary ? this.multiclass.secondarySkills : this.multiclass.primarySkills;
+        const currentRanks = skillMap.get(skillId) || 0;
+
+        if (currentRanks >= node.maxRanks) return false;
+        if (this.stats.skillPoints < node.cost) return false;
+
+        // Check prerequisites
+        for (const reqId of node.requires) {
+            const reqRanks = skillMap.get(reqId) || 0;
+            if (reqRanks === 0) return false;
+        }
+
+        skillMap.set(skillId, currentRanks + 1);
+        this.stats.skillPoints -= node.cost;
+
+        // Update unlocked abilities and passives
+        this.updateSkillTreeBonuses();
+        return true;
+    }
+
+    // Multiclass into a secondary class
+    multiclassInto(secondaryClassId: string): boolean {
+        if (this.stats.level < 25) return false;
+        if (this.multiclass.secondaryClass !== null) return false;
+        if (secondaryClassId === this.multiclass.primaryClass) return false;
+
+        this.multiclass.secondaryClass = secondaryClassId;
+        this.multiclass.multiclassLevel = this.stats.level;
+        return true;
+    }
+
+    // Update bonuses from skill tree
+    updateSkillTreeBonuses() {
+        this.unlockedAbilities = getUnlockedAbilities(this.multiclass);
+        this.activePassives = getActivePassives(this.multiclass);
+
+        // Apply skill bonuses during recalculateStats
+        this.recalculateStats();
     }
 
     getXpForNextLevel(): number {
@@ -293,6 +380,48 @@ export class Player extends Entity {
             }
         }
 
+        // Apply skill tree bonuses
+        const skillBonuses = calculateSkillBonuses(this.multiclass);
+        for (const [stat, value] of skillBonuses) {
+            switch (stat) {
+                case 'maxHp': this.stats.maxHp += value; break;
+                case 'maxMana': this.stats.maxMana += value; break;
+                case 'attack': this.stats.attack += value; break;
+                case 'defense': this.stats.defense += value; break;
+                case 'critChance': this.stats.critChance += value; break;
+                case 'dodgeChance': this.stats.dodgeChance += value; break;
+                case 'spellPower': this.stats.fireDamage += value; break;
+                case 'critDamage': /* Store separately if needed */ break;
+                case 'xpBonus': this.stats.xpBonus += value; break;
+                // Ultimate class bonuses
+                case 'warlord':
+                    this.stats.attack = Math.floor(this.stats.attack * 1.2);
+                    this.stats.maxHp += 50;
+                    break;
+                case 'archmage':
+                    this.stats.fireDamage = Math.floor(this.stats.fireDamage * 1.5);
+                    this.stats.iceDamage = Math.floor(this.stats.iceDamage * 1.5);
+                    this.stats.maxMana += 30;
+                    break;
+                case 'shadowlord':
+                    this.stats.critChance += 0.30;
+                    this.stats.dodgeChance += 0.30;
+                    break;
+                case 'hero':
+                    this.stats.attack = Math.floor(this.stats.attack * 1.2);
+                    this.stats.defense = Math.floor(this.stats.defense * 1.2);
+                    this.stats.maxHp = Math.floor(this.stats.maxHp * 1.2);
+                    this.stats.maxMana = Math.floor(this.stats.maxMana * 1.2);
+                    break;
+                case 'all_stats':
+                    this.stats.attack = Math.floor(this.stats.attack * (1 + value));
+                    this.stats.defense = Math.floor(this.stats.defense * (1 + value));
+                    this.stats.maxHp = Math.floor(this.stats.maxHp * (1 + value));
+                    this.stats.maxMana = Math.floor(this.stats.maxMana * (1 + value));
+                    break;
+            }
+        }
+
         // Clamp HP if it exceeds new max
         if (this.stats.hp > this.stats.maxHp) {
             this.stats.hp = this.stats.maxHp;
@@ -330,7 +459,8 @@ export const EnemyType = {
     Troll: 'troll',
     Demon: 'demon',
     Dragon: 'dragon',
-    Lich: 'lich'
+    Lich: 'lich',
+    Wraith: 'wraith'
 } as const;
 
 export type EnemyType = typeof EnemyType[keyof typeof EnemyType];
@@ -349,6 +479,7 @@ interface EnemyTemplate {
     pattern: 'aggressive' | 'defensive' | 'tricky' | 'balanced';
 }
 
+// Fallback templates (used when sprite system fails)
 const ENEMY_TEMPLATES: EnemyTemplate[] = [
     { type: EnemyType.Rat, name: 'Rat', char: 'r', color: '#864', baseHp: 8, baseAttack: 2, baseDefense: 0, baseXp: 5, minFloor: 1, isBoss: false, pattern: 'aggressive' },
     { type: EnemyType.Bat, name: 'Bat', char: 'b', color: '#666', baseHp: 6, baseAttack: 3, baseDefense: 0, baseXp: 6, minFloor: 1, isBoss: false, pattern: 'tricky' },
@@ -373,47 +504,89 @@ export class Enemy extends Entity {
     isBoss: boolean;
     isGolden: boolean = false;
     aggroRange: number = 8;
+    sprite: SpriteData | null = null;
 
-    constructor(x: number, y: number, difficulty: number) {
-        // Select appropriate enemy type for floor
-        const availableTypes = ENEMY_TEMPLATES.filter(t => t.minFloor <= difficulty && !t.isBoss);
+    constructor(x: number, y: number, difficulty: number, forceBoss: boolean = false) {
+        // Try to use new sprite system first
         const bossChance = difficulty >= 5 ? 0.05 : 0;
-        const isBoss = Math.random() < bossChance;
+        const isBoss = forceBoss || Math.random() < bossChance;
 
-        let template: EnemyTemplate;
-        if (isBoss) {
-            const bossTypes = ENEMY_TEMPLATES.filter(t => t.isBoss && t.minFloor <= difficulty);
-            template = bossTypes.length > 0
-                ? bossTypes[getRandomInt(0, bossTypes.length)]
-                : availableTypes[getRandomInt(0, availableTypes.length)];
-        } else {
-            template = availableTypes.length > 0
-                ? availableTypes[getRandomInt(0, availableTypes.length)]
-                : ENEMY_TEMPLATES[0];
-        }
+        // Get sprite from new system
+        const sprite = isBoss
+            ? getBossSpriteForFloor(difficulty)
+            : getEnemySpriteForFloor(difficulty, false);
 
-        super(x, y, template.char, template.color, template.name);
+        if (sprite) {
+            // Use sprite data
+            super(x, y, sprite.char, sprite.color, sprite.name);
 
-        this.enemyType = template.type;
-        this.pattern = template.pattern;
-        this.isBoss = template.isBoss;
+            this.sprite = sprite;
+            this.enemyType = sprite.id as EnemyType;
+            this.pattern = sprite.behavior?.pattern || 'aggressive';
+            this.isBoss = sprite.isBoss || false;
+            this.aggroRange = sprite.behavior?.aggroRange || 8;
 
-        // Scale stats with difficulty
-        const scaleMult = 1 + (difficulty - template.minFloor) * 0.15;
-        this.stats.hp = Math.floor(template.baseHp * scaleMult);
-        this.stats.maxHp = this.stats.hp;
-        this.stats.attack = Math.floor(template.baseAttack * scaleMult);
-        this.stats.defense = Math.floor(template.baseDefense * scaleMult);
-        this.stats.xp = Math.floor(template.baseXp * scaleMult);
-        this.stats.level = difficulty;
-
-        // Boss bonuses
-        if (this.isBoss) {
-            this.stats.hp *= 2;
+            // Use sprite stats scaled with difficulty
+            const minFloor = sprite.minFloor || 1;
+            const scaleMult = 1 + (difficulty - minFloor) * 0.15;
+            this.stats.hp = Math.floor(sprite.stats.baseHp * scaleMult);
             this.stats.maxHp = this.stats.hp;
-            this.stats.attack = Math.floor(this.stats.attack * 1.5);
-            this.stats.xp *= 3;
-            this.name = 'Boss ' + this.name;
+            this.stats.attack = Math.floor(sprite.stats.baseAttack * scaleMult);
+            this.stats.defense = Math.floor(sprite.stats.baseDefense * scaleMult);
+            this.stats.critChance = sprite.stats.critChance / 100;
+            this.stats.dodgeChance = sprite.stats.dodgeChance / 100;
+
+            // Calculate XP based on stats
+            const baseXp = Math.floor((sprite.stats.baseHp + sprite.stats.baseAttack * 5) * 0.5);
+            this.stats.xp = Math.floor(baseXp * scaleMult);
+            this.stats.level = difficulty;
+
+            // Boss bonuses
+            if (this.isBoss) {
+                this.stats.hp = Math.floor(this.stats.hp * 1.5);
+                this.stats.maxHp = this.stats.hp;
+                this.stats.attack = Math.floor(this.stats.attack * 1.3);
+                this.stats.xp *= 3;
+            }
+        } else {
+            // Fallback to old system
+            const availableTypes = ENEMY_TEMPLATES.filter(t => t.minFloor <= difficulty && !t.isBoss);
+
+            let template: EnemyTemplate;
+            if (isBoss) {
+                const bossTypes = ENEMY_TEMPLATES.filter(t => t.isBoss && t.minFloor <= difficulty);
+                template = bossTypes.length > 0
+                    ? bossTypes[getRandomInt(0, bossTypes.length)]
+                    : availableTypes[getRandomInt(0, availableTypes.length)];
+            } else {
+                template = availableTypes.length > 0
+                    ? availableTypes[getRandomInt(0, availableTypes.length)]
+                    : ENEMY_TEMPLATES[0];
+            }
+
+            super(x, y, template.char, template.color, template.name);
+
+            this.enemyType = template.type;
+            this.pattern = template.pattern;
+            this.isBoss = template.isBoss;
+
+            // Scale stats with difficulty
+            const scaleMult = 1 + (difficulty - template.minFloor) * 0.15;
+            this.stats.hp = Math.floor(template.baseHp * scaleMult);
+            this.stats.maxHp = this.stats.hp;
+            this.stats.attack = Math.floor(template.baseAttack * scaleMult);
+            this.stats.defense = Math.floor(template.baseDefense * scaleMult);
+            this.stats.xp = Math.floor(template.baseXp * scaleMult);
+            this.stats.level = difficulty;
+
+            // Boss bonuses
+            if (this.isBoss) {
+                this.stats.hp *= 2;
+                this.stats.maxHp = this.stats.hp;
+                this.stats.attack = Math.floor(this.stats.attack * 1.5);
+                this.stats.xp *= 3;
+                this.name = 'Boss ' + this.name;
+            }
         }
     }
 

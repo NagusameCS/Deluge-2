@@ -3,21 +3,27 @@ import { Player, Enemy, Item, DungeonCore, Entity, Trap } from './Entity';
 import { Renderer } from './Renderer';
 import { InputHandler } from './Input';
 import { MAP_WIDTH, MAP_HEIGHT, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, TrapType, getRandomInt } from './utils';
-import { CombatSystem, CombatPhase } from './Combat';
+import { CombatSystem, CombatPhase, MultiCombatSystem, MultiCombatPhase } from './Combat';
 import { aStar, clearPathCache } from './Pathfinding';
 import { Chest, generateEquipment, CRAFTING_RECIPES, MaterialType, MATERIALS } from './Equipment';
 import { SpriteManager, type SpriteData } from './Sprite';
 import { AssetManager } from './GameAssets';
+import { generateSwarmConfig, generateBossConfig, generateChallengeConfig, getRandomShrineEffect, generateRoomPuzzle } from './RoomTypes';
+import { SKILL_TREES, canMulticlass, getAvailableMulticlasses } from './SkillTree';
+import type { SkillTree } from './SkillTree';
 
 export const GameState = {
     Map: 0,
     Combat: 1,
-    LevelUp: 2,
-    Stats: 3,
-    Equipment: 4,
-    Crafting: 5,
-    Puzzle: 6,
-    ClassSelect: 7
+    MultiCombat: 2,  // New: swarm battles
+    LevelUp: 3,
+    Stats: 4,
+    Equipment: 5,
+    Crafting: 6,
+    Puzzle: 7,
+    ClassSelect: 8,
+    SkillTree: 9,
+    Multiclass: 10
 } as const;
 
 export type GameState = typeof GameState[keyof typeof GameState];
@@ -40,6 +46,7 @@ export class Game {
     renderer: Renderer;
     inputHandler: InputHandler;
     combatSystem: CombatSystem | null = null;
+    multiCombatSystem: MultiCombatSystem | null = null;
     logs: string[] = [];
     floor: number = 1;
     turnCounter: number = 0;
@@ -57,6 +64,20 @@ export class Game {
 
     // Timed notifications
     notifications: Notification[] = [];
+    notificationsEnabled: boolean = true;
+
+    // Skill tree state
+    selectedSkillTreeNode: number = 0;
+    currentSkillTree: SkillTree | null = null;
+    viewingSecondaryTree: boolean = false;
+
+    // Multiclass selection
+    multiclassOptions: string[] = [];
+    selectedMulticlassIndex: number = 0;
+
+    // Current room tracking
+    currentRoomIndex: number = 0;
+    lastRoomIndex: number = -1;
 
     constructor() {
         this.renderer = new Renderer('gameCanvas', VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
@@ -89,11 +110,23 @@ export class Game {
     }
 
     notify(message: string, duration: number = 2000) {
+        if (!this.notificationsEnabled) return;
         this.notifications.push({
             message,
             timestamp: Date.now(),
             duration
         });
+        // Limit max notifications
+        if (this.notifications.length > 5) {
+            this.notifications.shift();
+        }
+    }
+
+    toggleNotifications() {
+        this.notificationsEnabled = !this.notificationsEnabled;
+        if (this.notificationsEnabled) {
+            this.notify('Notifications enabled');
+        }
     }
 
     updateNotifications() {
@@ -127,6 +160,7 @@ export class Game {
 
     generateLevel() {
         this.map = new GameMap(MAP_WIDTH, MAP_HEIGHT);
+        this.map.floor = this.floor;
         this.map.generate();
 
         // Clear pathfinding cache when generating a new level
@@ -138,16 +172,20 @@ export class Game {
         this.player.x = startCenter.x;
         this.player.y = startCenter.y;
         this.map.computeFOV(this.player.x, this.player.y, 8);
+        this.currentRoomIndex = 0;
+        this.lastRoomIndex = -1;
 
         this.enemies = [];
         this.items = [];
         this.chests = [];
         this.traps = [];
 
-        // Place enemies, items, chests, traps and core
+        // Place enemies, items, chests, traps based on room type
         for (let i = 1; i < this.map.rooms.length; i++) {
             const room = this.map.rooms[i];
             const center = room.center();
+            const roomData = this.map.roomData[i];
+            const roomType = roomData?.type || 'normal';
 
             // Last room gets the core
             if (i === this.map.rooms.length - 1) {
@@ -155,57 +193,151 @@ export class Game {
                 continue;
             }
 
-            // Spawn enemies (more on higher floors)
-            const enemyChance = 0.4 + (this.floor * 0.05);
-            if (Math.random() < enemyChance) {
-                // Potentially spawn multiple enemies in later floors
-                const numEnemies = this.floor >= 3 && Math.random() < 0.3 ? 2 : 1;
-                for (let e = 0; e < numEnemies; e++) {
-                    const ex = center.x + getRandomInt(-2, 3);
-                    const ey = center.y + getRandomInt(-2, 3);
-                    if (!this.map.isBlocked(ex, ey)) {
-                        const enemy = new Enemy(ex, ey, this.floor);
-
-                        // Golden mob chance (5% base, increases slightly per floor)
-                        if (Math.random() < 0.05 + this.floor * 0.01) {
-                            enemy.makeGolden();
-                        }
-
-                        this.enemies.push(enemy);
+            // Spawn content based on room type
+            switch (roomType) {
+                case 'treasure':
+                    // Lots of items and chests, no enemies
+                    this.chests.push(new Chest(center.x, center.y, this.floor));
+                    this.chests.push(new Chest(center.x + 2, center.y, this.floor));
+                    for (let j = 0; j < 3; j++) {
+                        const ix = center.x + getRandomInt(-2, 3);
+                        const iy = center.y + getRandomInt(-2, 3);
+                        this.items.push(new Item(ix, iy, 'Gold Coin', '#ffd700', ItemType.Coin, 20 + this.floor * 10));
                     }
-                }
-            }
+                    break;
 
-            // Spawn chest (rarer than items)
-            if (Math.random() < 0.15) {
-                this.chests.push(new Chest(center.x + 1, center.y, this.floor));
-            }
+                case 'trap':
+                    // Many traps, some items as bait
+                    const trapTypes: TrapType[] = ['spike', 'fire', 'poison', 'teleport', 'alarm'];
+                    for (let t = 0; t < 5 + this.floor; t++) {
+                        const trapType = trapTypes[getRandomInt(0, trapTypes.length)];
+                        const tx = center.x + getRandomInt(-4, 5);
+                        const ty = center.y + getRandomInt(-4, 5);
+                        if (!this.map.isBlocked(tx, ty)) {
+                            this.traps.push(new Trap(tx, ty, trapType, this.floor));
+                        }
+                    }
+                    // Bait item in center
+                    this.items.push(new Item(center.x, center.y, 'Health Potion', '#0f0', ItemType.Potion, 30));
+                    break;
 
-            // Spawn items
-            const typeRoll = Math.random();
-            if (typeRoll < 0.3) {
-                this.items.push(new Item(center.x, center.y, 'Health Potion', '#0f0', ItemType.Potion, 20));
-            } else if (typeRoll < 0.45) {
-                this.items.push(new Item(center.x, center.y, 'Mana Potion', '#00f', ItemType.Potion, 20));
-            } else if (typeRoll < 0.55) {
-                // Material drop
-                const matTypes = Object.values(MaterialType);
-                const matType = matTypes[getRandomInt(0, matTypes.length)] as MaterialType;
-                const mat = MATERIALS[matType];
-                this.items.push(new Item(center.x, center.y, mat.name, mat.color, ItemType.Material, 1, matType));
-            } else if (typeRoll < 0.65) {
-                this.items.push(new Item(center.x, center.y, 'Gold Coin', '#ffd700', ItemType.Coin, 10 + this.floor * 5));
-            }
+                case 'puzzle':
+                    // Puzzle room - store puzzle data
+                    const puzzle = generateRoomPuzzle(this.floor);
+                    roomData.specialData = puzzle;
+                    // Small reward visible
+                    this.chests.push(new Chest(center.x, center.y, this.floor + 1)); // Better loot
+                    break;
 
-            // Spawn traps (more on higher floors)
-            if (Math.random() < 0.1 + (this.floor * 0.02)) {
-                const trapTypes: TrapType[] = ['spike', 'fire', 'poison', 'teleport', 'alarm'];
-                const trapType = trapTypes[getRandomInt(0, trapTypes.length)];
-                const tx = center.x + getRandomInt(-3, 4);
-                const ty = center.y + getRandomInt(-3, 4);
-                if (!this.map.isBlocked(tx, ty)) {
-                    this.traps.push(new Trap(tx, ty, trapType, this.floor));
-                }
+                case 'boss':
+                    // Spawn a boss enemy
+                    const boss = new Enemy(center.x, center.y, this.floor, true);
+                    this.enemies.push(boss);
+                    // Some minions
+                    const bossConfig = generateBossConfig(this.floor);
+                    for (let m = 0; m < bossConfig.minions; m++) {
+                        const mx = center.x + getRandomInt(-3, 4);
+                        const my = center.y + getRandomInt(-3, 4);
+                        if (!this.map.isBlocked(mx, my)) {
+                            this.enemies.push(new Enemy(mx, my, Math.max(1, this.floor - 1)));
+                        }
+                    }
+                    roomData.specialData = bossConfig;
+                    break;
+
+                case 'swarm':
+                    // Many weaker enemies
+                    const swarmConfig = generateSwarmConfig(this.floor);
+                    for (let s = 0; s < swarmConfig.enemyCount; s++) {
+                        const sx = center.x + getRandomInt(-4, 5);
+                        const sy = center.y + getRandomInt(-4, 5);
+                        if (!this.map.isBlocked(sx, sy)) {
+                            const swarmEnemy = new Enemy(sx, sy, Math.max(1, this.floor - 1));
+                            this.enemies.push(swarmEnemy);
+                        }
+                    }
+                    roomData.specialData = swarmConfig;
+                    break;
+
+                case 'shrine':
+                    // Random buff/debuff on interaction - no enemies
+                    const shrineEffect = getRandomShrineEffect();
+                    roomData.specialData = shrineEffect;
+                    // Place a visual marker (handled by renderer)
+                    break;
+
+                case 'merchant':
+                    // Shop room - no enemies, items for sale
+                    roomData.specialData = {
+                        items: [
+                            { name: 'Health Potion', cost: 50, type: 'potion', value: 30 },
+                            { name: 'Mana Potion', cost: 50, type: 'potion', value: 30 },
+                            { name: 'Random Equipment', cost: 100 + this.floor * 20, type: 'equipment' }
+                        ]
+                    };
+                    break;
+
+                case 'challenge':
+                    // Challenge room - tough enemy with time/conditions
+                    const challengeConfig = generateChallengeConfig(this.floor);
+                    const challengeEnemy = new Enemy(center.x, center.y, this.floor + 1);
+                    this.enemies.push(challengeEnemy);
+                    roomData.specialData = challengeConfig;
+                    break;
+
+                case 'rest':
+                    // Safe room - heal partially, no enemies
+                    this.items.push(new Item(center.x, center.y, 'Rest Area', '#4f4', ItemType.Potion, 0));
+                    roomData.specialData = { canRest: true };
+                    break;
+
+                case 'normal':
+                default:
+                    // Standard room spawning logic
+                    const enemyChance = 0.4 + (this.floor * 0.05);
+                    if (Math.random() < enemyChance) {
+                        const numEnemies = this.floor >= 3 && Math.random() < 0.3 ? 2 : 1;
+                        for (let e = 0; e < numEnemies; e++) {
+                            const ex = center.x + getRandomInt(-2, 3);
+                            const ey = center.y + getRandomInt(-2, 3);
+                            if (!this.map.isBlocked(ex, ey)) {
+                                const enemy = new Enemy(ex, ey, this.floor);
+                                if (Math.random() < 0.05 + this.floor * 0.01) {
+                                    enemy.makeGolden();
+                                }
+                                this.enemies.push(enemy);
+                            }
+                        }
+                    }
+
+                    if (Math.random() < 0.15) {
+                        this.chests.push(new Chest(center.x + 1, center.y, this.floor));
+                    }
+
+                    const typeRoll = Math.random();
+                    if (typeRoll < 0.3) {
+                        this.items.push(new Item(center.x, center.y, 'Health Potion', '#0f0', ItemType.Potion, 20));
+                    } else if (typeRoll < 0.45) {
+                        this.items.push(new Item(center.x, center.y, 'Mana Potion', '#00f', ItemType.Potion, 20));
+                    } else if (typeRoll < 0.55) {
+                        const matTypes = Object.values(MaterialType);
+                        const matType = matTypes[getRandomInt(0, matTypes.length)] as MaterialType;
+                        const mat = MATERIALS[matType];
+                        this.items.push(new Item(center.x, center.y, mat.name, mat.color, ItemType.Material, 1, matType));
+                    } else if (typeRoll < 0.65) {
+                        this.items.push(new Item(center.x, center.y, 'Gold Coin', '#ffd700', ItemType.Coin, 10 + this.floor * 5));
+                    }
+
+                    if (Math.random() < 0.1 + (this.floor * 0.02)) {
+                        const trapTypes2: TrapType[] = ['spike', 'fire', 'poison', 'teleport', 'alarm'];
+                        const trapType2 = trapTypes2[getRandomInt(0, trapTypes2.length)];
+                        const tx = center.x + getRandomInt(-3, 4);
+                        const ty = center.y + getRandomInt(-3, 4);
+                        if (!this.map.isBlocked(tx, ty)) {
+                            this.traps.push(new Trap(tx, ty, trapType2, this.floor));
+                        }
+                    }
+                    break;
             }
         }
 
@@ -244,6 +376,26 @@ export class Game {
 
     startCombat(enemy: Enemy | DungeonCore) {
         if (enemy instanceof Enemy) {
+            // Check if we're in a swarm room - trigger multi-combat
+            const roomData = this.map.getRoomDataAt(this.player.x, this.player.y);
+            if (roomData && roomData.type === 'swarm') {
+                // Get all nearby enemies in the swarm
+                const nearbyEnemies = this.enemies.filter(e => {
+                    const dist = Math.abs(e.x - this.player.x) + Math.abs(e.y - this.player.y);
+                    return dist <= 6 && !e.isDead;
+                });
+
+                if (nearbyEnemies.length > 1) {
+                    // Multi-combat!
+                    this.multiCombatSystem = new MultiCombatSystem(this.player, nearbyEnemies);
+                    this.state = GameState.MultiCombat;
+                    this.log(`Swarm battle with ${nearbyEnemies.length} enemies!`);
+                    this.notify(`SWARM BATTLE! ${nearbyEnemies.length} enemies!`, 2000);
+                    return;
+                }
+            }
+
+            // Standard single combat
             this.combatSystem = new CombatSystem(this.player, enemy);
             this.state = GameState.Combat;
             this.log(`Combat started with ${enemy.name}!`);
@@ -367,6 +519,60 @@ export class Game {
             return;
         }
 
+        // Skill Tree state
+        if (this.state === GameState.SkillTree) {
+            if (key === 'Escape' || key === 'Tab') {
+                this.state = GameState.Map;
+            } else if (key === 'ArrowUp' || key === 'w') {
+                this.selectedSkillTreeNode = Math.max(0, this.selectedSkillTreeNode - 1);
+            } else if (key === 'ArrowDown' || key === 's') {
+                const maxNodes = this.currentSkillTree ? this.currentSkillTree.nodes.length - 1 : 0;
+                this.selectedSkillTreeNode = Math.min(maxNodes, this.selectedSkillTreeNode + 1);
+            } else if (key === 'Enter' || key === ' ') {
+                // Try to learn skill
+                if (this.currentSkillTree) {
+                    const node = this.currentSkillTree.nodes[this.selectedSkillTreeNode];
+                    if (node) {
+                        if (this.player.learnSkill(node.id, this.viewingSecondaryTree)) {
+                            this.notify(`Learned ${node.name}!`);
+                        } else {
+                            this.notify('Cannot learn this skill');
+                        }
+                    }
+                }
+            } else if (key === 'q' || key === 'Q') {
+                // Toggle between primary and secondary tree
+                if (this.player.multiclass.secondaryClass) {
+                    this.viewingSecondaryTree = !this.viewingSecondaryTree;
+                    this.currentSkillTree = SKILL_TREES.get(
+                        this.viewingSecondaryTree
+                            ? this.player.multiclass.secondaryClass
+                            : this.player.multiclass.primaryClass
+                    ) || null;
+                    this.selectedSkillTreeNode = 0;
+                }
+            }
+            return;
+        }
+
+        // Multiclass selection state
+        if (this.state === GameState.Multiclass) {
+            if (key === 'Escape') {
+                this.state = GameState.Map;
+            } else if (key === 'ArrowUp' || key === 'w') {
+                this.selectedMulticlassIndex = Math.max(0, this.selectedMulticlassIndex - 1);
+            } else if (key === 'ArrowDown' || key === 's') {
+                this.selectedMulticlassIndex = Math.min(this.multiclassOptions.length - 1, this.selectedMulticlassIndex + 1);
+            } else if (key === 'Enter' || key === ' ') {
+                const selectedClass = this.multiclassOptions[this.selectedMulticlassIndex];
+                if (selectedClass && this.player.multiclassInto(selectedClass)) {
+                    this.notify(`Multiclassed into ${selectedClass}!`);
+                    this.state = GameState.Map;
+                }
+            }
+            return;
+        }
+
         if (this.state === GameState.LevelUp) {
             if (key === '1') { this.player.baseStats.maxHp += 10; this.player.stats.hp += 10; }
             else if (key === '2') { this.player.baseStats.maxMana += 10; this.player.stats.mana += 10; }
@@ -389,6 +595,12 @@ export class Game {
             return;
         }
 
+        if (this.state === GameState.MultiCombat && this.multiCombatSystem) {
+            // Pass all keys to multi-combat system
+            this.multiCombatSystem.handleInput(key);
+            return;
+        }
+
         let dx = 0;
         let dy = 0;
         if (key === 'ArrowUp' || key === 'w') dy = -1;
@@ -408,6 +620,29 @@ export class Game {
             }
             if (key === 'c' || key === 'C') {
                 this.state = GameState.Crafting;
+                return;
+            }
+            // Skill Tree (T key)
+            if (key === 't' || key === 'T') {
+                this.openSkillTree();
+                return;
+            }
+            // Multiclass (M key) - only at level 25+
+            if (key === 'm' || key === 'M') {
+                if (canMulticlass(this.player.stats.level, this.player.multiclass)) {
+                    this.multiclassOptions = getAvailableMulticlasses(this.player.multiclass.primaryClass);
+                    this.selectedMulticlassIndex = 0;
+                    this.state = GameState.Multiclass;
+                } else if (this.player.multiclass.secondaryClass) {
+                    this.notify('Already multiclassed!');
+                } else {
+                    this.notify(`Multiclass available at level 25 (current: ${this.player.stats.level})`);
+                }
+                return;
+            }
+            // Toggle notifications (N key)
+            if (key === 'n' || key === 'N') {
+                this.toggleNotifications();
                 return;
             }
             // Skills
@@ -508,6 +743,14 @@ export class Game {
                 this.log("No target in range for Fireball.");
             }
         }
+    }
+
+    openSkillTree() {
+        // Load the skill tree for current class
+        this.currentSkillTree = SKILL_TREES.get(this.player.multiclass.primaryClass) || null;
+        this.viewingSecondaryTree = false;
+        this.selectedSkillTreeNode = 0;
+        this.state = GameState.SkillTree;
     }
 
     openChest(chest: Chest) {
@@ -903,6 +1146,29 @@ export class Game {
                 this.resetGame();
             }
         }
+
+        // Multi-combat update
+        if (this.state === GameState.MultiCombat && this.multiCombatSystem) {
+            this.multiCombatSystem.update();
+
+            // Check for combat end conditions
+            if (this.multiCombatSystem.phase === MultiCombatPhase.Victory) {
+                // Handle all enemy deaths
+                for (const state of this.multiCombatSystem.enemies) {
+                    if (state.isDead) {
+                        this.handleEnemyDeath(state.enemy);
+                    }
+                }
+                this.multiCombatSystem.endCombat();
+                this.multiCombatSystem = null;
+                this.state = GameState.Map;
+            } else if (this.multiCombatSystem.phase === MultiCombatPhase.Defeat || this.player.isDead) {
+                this.log("Overwhelmed by the swarm!");
+                this.multiCombatSystem.endCombat();
+                this.multiCombatSystem = null;
+                this.resetGame();
+            }
+        }
     }
 
     // Full game reset when player dies
@@ -931,6 +1197,8 @@ export class Game {
             this.renderer.drawClassSelection(this.availableClasses, this.selectedClassIndex);
         } else if (this.state === GameState.Combat && this.combatSystem) {
             this.renderer.drawCombat(this.combatSystem);
+        } else if (this.state === GameState.MultiCombat && this.multiCombatSystem) {
+            this.renderer.drawMultiCombat(this.multiCombatSystem);
         } else if (this.state === GameState.Stats) {
             this.renderer.drawStats(this.player, this.floor);
         } else if (this.state === GameState.Equipment) {
@@ -939,6 +1207,24 @@ export class Game {
             this.renderer.drawCrafting(this.player, this.selectedCraftingIndex);
         } else if (this.state === GameState.Puzzle && this.core) {
             this.renderer.drawPuzzle(this.core);
+        } else if (this.state === GameState.SkillTree && this.currentSkillTree) {
+            const skillMap = this.viewingSecondaryTree
+                ? this.player.multiclass.secondarySkills
+                : this.player.multiclass.primarySkills;
+            this.renderer.drawSkillTree(
+                this.currentSkillTree,
+                skillMap,
+                this.selectedSkillTreeNode,
+                this.player.stats.skillPoints,
+                this.viewingSecondaryTree,
+                this.player.multiclass.secondaryClass !== null
+            );
+        } else if (this.state === GameState.Multiclass) {
+            this.renderer.drawMulticlassMenu(
+                this.multiclassOptions,
+                this.selectedMulticlassIndex,
+                this.player.multiclass.primaryClass
+            );
         } else if (this.state === GameState.LevelUp) {
             // Draw map in background
             this.renderer.drawMap(this.map, this.player.x, this.player.y);
@@ -977,7 +1263,7 @@ export class Game {
         }
 
         // Draw timed notifications on top
-        this.renderer.drawNotifications(this.notifications);
+        this.renderer.drawNotifications(this.notifications, this.notificationsEnabled);
     }
     loop() {
         this.update();

@@ -1,14 +1,18 @@
 import { TileType, getRandomInt } from './utils';
 import { Trap } from './Entity';
+import { selectRoomType } from './RoomTypes';
+import type { RoomData } from './RoomTypes';
 
 export class GameMap {
     width: number;
     height: number;
     tiles: TileType[][];
     rooms: Rect[] = [];
+    roomData: RoomData[] = []; // Room type and state data
     explored: boolean[][];
     visible: boolean[][];
     traps: Trap[] = [];
+    floor: number = 1; // Current floor for room type selection
 
     constructor(width: number, height: number) {
         this.width = width;
@@ -25,6 +29,7 @@ export class GameMap {
         this.explored = [];
         this.visible = [];
         this.traps = [];
+        this.roomData = [];
         for (let y = 0; y < this.height; y++) {
             const row: TileType[] = [];
             const exploredRow: boolean[] = [];
@@ -77,6 +82,7 @@ export class GameMap {
     generate() {
         this.initialize();
         this.rooms = [];
+        this.roomData = [];
         const MAX_ROOMS = 30; // Increased from 15
         const MIN_SIZE = 8;   // Increased from 6
         const MAX_SIZE = 15;  // Increased from 12
@@ -120,6 +126,18 @@ export class GameMap {
                     }
                 }
 
+                // Assign room type
+                const isFirst = this.rooms.length === 0;
+                const isLast = this.rooms.length === MAX_ROOMS - 1;
+                const roomType = selectRoomType(this.floor, isFirst, isLast);
+
+                this.roomData.push({
+                    type: roomType,
+                    roomIndex: this.rooms.length,
+                    cleared: false,
+                    specialData: null
+                });
+
                 this.rooms.push(newRoom);
             }
         }
@@ -131,7 +149,7 @@ export class GameMap {
             const x = getRandomInt(room.x + 1, room.x + room.w - 1);
             const y = getRandomInt(room.y + 1, room.y + room.h - 1);
             if (this.tiles[y][x] === TileType.Floor) {
-                this.traps.push(new Trap(x, y, 'spike', 1));
+                this.traps.push(new Trap(x, y, 'spike', this.floor));
             }
         }
     }
@@ -159,6 +177,32 @@ export class GameMap {
     isBlocked(x: number, y: number): boolean {
         if (x < 0 || x >= this.width || y < 0 || y >= this.height) return true;
         return this.tiles[y][x] === TileType.Wall;
+    }
+
+    // Get the room index at a position (-1 if not in a room)
+    getRoomIndexAt(x: number, y: number): number {
+        for (let i = 0; i < this.rooms.length; i++) {
+            const room = this.rooms[i];
+            if (x >= room.x && x < room.x + room.w &&
+                y >= room.y && y < room.y + room.h) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // Get room data at a position
+    getRoomDataAt(x: number, y: number): RoomData | null {
+        const idx = this.getRoomIndexAt(x, y);
+        if (idx === -1) return null;
+        return this.roomData[idx] || null;
+    }
+
+    // Mark a room as cleared
+    clearRoom(roomIndex: number) {
+        if (roomIndex >= 0 && roomIndex < this.roomData.length) {
+            this.roomData[roomIndex].cleared = true;
+        }
     }
 }
 
@@ -189,5 +233,11 @@ export class Rect {
             this.y <= other.y + other.h &&
             this.y + this.h >= other.y
         );
+    }
+
+    // Check if a point is inside this room
+    contains(x: number, y: number): boolean {
+        return x >= this.x && x < this.x + this.w &&
+            y >= this.y && y < this.y + this.h;
     }
 }

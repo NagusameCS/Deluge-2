@@ -1,7 +1,7 @@
 import { GameMap } from './Map';
 import { Entity, Item, Trap, Player, DungeonCore } from './Entity';
 import { TILE_SIZE, TileType, ItemType, VIEWPORT_WIDTH, VIEWPORT_HEIGHT } from './utils';
-import { CombatSystem, CombatPhase, ACTIONS } from './Combat';
+import { CombatSystem, CombatPhase, ACTIONS, MultiCombatSystem, MultiCombatPhase } from './Combat';
 import { Chest, RARITY_COLORS, RARITY_NAMES, CRAFTING_RECIPES, MATERIALS } from './Equipment';
 import { AssetManager, drawAsset } from './GameAssets';
 
@@ -494,6 +494,257 @@ export class Renderer {
         }
 
         // Reset text align
+        this.ctx.textAlign = 'left';
+    }
+
+    drawMultiCombat(combat: MultiCombatSystem) {
+        // Draw dark overlay
+        this.ctx.fillStyle = 'rgba(15, 5, 20, 0.95)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const centerX = this.canvas.width / 2;
+        const aliveEnemies = combat.getAliveEnemies();
+
+        // ========== TITLE ==========
+        this.ctx.fillStyle = '#f80';
+        this.ctx.font = 'bold 24px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(`-- SWARM BATTLE - Turn ${combat.turn} --`, centerX, 35);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '14px monospace';
+        this.ctx.fillText(`${aliveEnemies.length} enemies remaining`, centerX, 55);
+
+        // ========== PLAYER BOX ==========
+        const playerBoxX = 30;
+        const boxY = 70;
+        const boxW = 180;
+        const boxH = 110;
+
+        this.ctx.fillStyle = 'rgba(0, 50, 100, 0.8)';
+        this.ctx.fillRect(playerBoxX, boxY, boxW, boxH);
+        this.ctx.strokeStyle = '#0af';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(playerBoxX, boxY, boxW, boxH);
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 14px monospace';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText('YOU', playerBoxX + 10, boxY + 20);
+
+        this.drawBar(playerBoxX + 10, boxY + 28, boxW - 20, 16,
+            combat.player.stats.hp, combat.player.stats.maxHp, '#0f0', '#300', 'HP');
+        this.drawBar(playerBoxX + 10, boxY + 48, boxW - 20, 12,
+            combat.player.stats.mana, combat.player.stats.maxMana, '#00f', '#003', 'MP');
+        this.drawBar(playerBoxX + 10, boxY + 64, boxW - 20, 12,
+            combat.playerStamina, combat.maxPlayerStamina, '#ff0', '#330', 'ST');
+
+        // Combo points
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '11px monospace';
+        this.ctx.fillText(`Combo: `, playerBoxX + 10, boxY + 95);
+        for (let i = 0; i < combat.maxComboPoints; i++) {
+            this.ctx.fillStyle = i < combat.comboPoints ? '#f80' : '#444';
+            this.ctx.fillRect(playerBoxX + 55 + i * 18, boxY + 84, 14, 14);
+        }
+
+        // ========== ENEMY LIST ==========
+        const enemyListX = 230;
+        const enemyListW = this.canvas.width - enemyListX - 20;
+        const enemyListH = Math.min(140, 30 + aliveEnemies.length * 35);
+
+        this.ctx.fillStyle = 'rgba(60, 20, 20, 0.8)';
+        this.ctx.fillRect(enemyListX, boxY, enemyListW, enemyListH);
+        this.ctx.strokeStyle = '#f44';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(enemyListX, boxY, enemyListW, enemyListH);
+
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 12px monospace';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText('ENEMIES (UP/DOWN to select, ENTER to confirm)', enemyListX + 10, boxY + 18);
+
+        // List enemies
+        const isSelectingTarget = combat.phase === MultiCombatPhase.SelectTarget;
+        for (let i = 0; i < aliveEnemies.length; i++) {
+            const state = aliveEnemies[i];
+            const y = boxY + 30 + i * 30;
+
+            // Highlight selected
+            const isSelected = i === combat.selectedTargetIndex;
+            if (isSelected && isSelectingTarget) {
+                this.ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
+                this.ctx.fillRect(enemyListX + 5, y - 8, enemyListW - 10, 28);
+            }
+
+            // Enemy name and HP
+            this.ctx.fillStyle = isSelected ? '#ff0' : '#fff';
+            this.ctx.font = '12px monospace';
+            const prefix = isSelected ? '>' : ' ';
+            this.ctx.fillText(`${prefix} ${state.enemy.name} (Lv${state.enemy.stats.level})`, enemyListX + 10, y + 5);
+
+            // Mini HP bar
+            const hpBarX = enemyListX + 200;
+            const hpBarW = 120;
+            this.ctx.fillStyle = '#300';
+            this.ctx.fillRect(hpBarX, y - 3, hpBarW, 12);
+            const hpPct = state.enemy.stats.hp / state.enemy.stats.maxHp;
+            this.ctx.fillStyle = hpPct > 0.5 ? '#0f0' : hpPct > 0.25 ? '#ff0' : '#f00';
+            this.ctx.fillRect(hpBarX, y - 3, hpBarW * hpPct, 12);
+            this.ctx.strokeStyle = '#666';
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(hpBarX, y - 3, hpBarW, 12);
+
+            // HP text
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '10px monospace';
+            this.ctx.fillText(`${state.enemy.stats.hp}/${state.enemy.stats.maxHp}`, hpBarX + 2, y + 6);
+
+            // Show pending action if premonition active
+            if (combat.premonitionActive && state.pendingAction) {
+                this.ctx.fillStyle = '#a0f';
+                this.ctx.fillText(`→ ${ACTIONS[state.pendingAction].name}`, hpBarX + 130, y + 5);
+            }
+
+            // Show damage taken this turn
+            if (state.lastDamage > 0) {
+                this.ctx.fillStyle = '#f44';
+                this.ctx.font = 'bold 12px monospace';
+                this.ctx.fillText(`-${state.lastDamage}`, hpBarX + hpBarW + 10, y + 5);
+            }
+        }
+
+        // ========== ACTION MENU ==========
+        const menuY = 230;
+
+        this.ctx.fillStyle = 'rgba(30, 30, 40, 0.9)';
+        this.ctx.fillRect(20, menuY, this.canvas.width - 40, 100);
+        this.ctx.strokeStyle = '#666';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(20, menuY, this.canvas.width - 40, 100);
+
+        if (combat.phase === MultiCombatPhase.SelectTarget) {
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.font = 'bold 16px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('[ SELECT TARGET - Press ENTER to confirm ]', centerX, menuY + 30);
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '12px monospace';
+            this.ctx.fillText('Use UP/DOWN arrows to choose which enemy to attack', centerX, menuY + 55);
+            this.ctx.fillText('Fireball will hit ALL enemies!', centerX, menuY + 75);
+        } else if (combat.phase === MultiCombatPhase.SelectAction) {
+            this.ctx.fillStyle = '#0f0';
+            this.ctx.font = 'bold 14px monospace';
+            this.ctx.textAlign = 'center';
+            const targetName = aliveEnemies[combat.selectedTargetIndex]?.enemy.name || 'Enemy';
+            this.ctx.fillText(`Target: ${targetName} - SELECT ACTION (TAB to change target)`, centerX, menuY + 20);
+
+            // Draw action buttons
+            const actions = [
+                { key: '1', name: 'Strike', cost: '15 ST', color: '#f80' },
+                { key: '2', name: 'Guard', cost: '10 ST', color: '#0af' },
+                { key: '3', name: 'Feint', cost: '20 ST', color: '#0f8' },
+                { key: '4', name: 'Heavy', cost: '30 ST', color: '#f44' },
+                { key: 'Q', name: 'Heal', cost: '12 MP', color: '#0f0' },
+                { key: 'W', name: 'Fire (AOE)', cost: '15 MP', color: '#f80' },
+                { key: 'E', name: 'Premonition', cost: '8 MP', color: '#a0f' },
+                { key: 'R', name: 'Execute', cost: '3 Combo', color: '#ff0' },
+            ];
+
+            const btnW = 85;
+            const btnH = 45;
+            const startX = 35;
+
+            for (let i = 0; i < actions.length; i++) {
+                const action = actions[i];
+                const x = startX + (i % 8) * (btnW + 5);
+                const y = menuY + 35;
+
+                let canUse = true;
+                if (action.key === 'R' && combat.comboPoints < combat.maxComboPoints) canUse = false;
+                if (action.cost.includes('ST') && parseInt(action.cost) > combat.playerStamina) canUse = false;
+                if (action.cost.includes('MP') && parseInt(action.cost) > combat.player.stats.mana) canUse = false;
+
+                this.ctx.fillStyle = canUse ? 'rgba(60, 60, 80, 0.9)' : 'rgba(30, 30, 40, 0.5)';
+                this.ctx.fillRect(x, y, btnW, btnH);
+                this.ctx.strokeStyle = canUse ? action.color : '#333';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(x, y, btnW, btnH);
+
+                this.ctx.fillStyle = canUse ? '#fff' : '#555';
+                this.ctx.font = 'bold 10px monospace';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(`[${action.key}] ${action.name}`, x + btnW / 2, y + 18);
+                this.ctx.font = '9px monospace';
+                this.ctx.fillStyle = canUse ? action.color : '#444';
+                this.ctx.fillText(action.cost, x + btnW / 2, y + 34);
+            }
+        } else if (combat.phase === MultiCombatPhase.ShowPremonition) {
+            this.ctx.fillStyle = '#a0f';
+            this.ctx.font = 'bold 18px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('** PREMONITION - Enemy Intents Revealed **', centerX, menuY + 40);
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '12px monospace';
+            this.ctx.fillText('Press any key to choose your action...', centerX, menuY + 70);
+        } else if (combat.phase === MultiCombatPhase.Resolution) {
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.font = 'bold 20px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('** COMBAT! **', centerX, menuY + 50);
+        } else if (combat.phase === MultiCombatPhase.Result && combat.lastResult) {
+            const result = combat.lastResult;
+            const outcomeColor = result.outcome === 'player_wins' ? '#0f0' :
+                result.outcome === 'enemy_wins' ? '#f44' : '#ff0';
+            this.ctx.fillStyle = outcomeColor;
+            this.ctx.font = 'bold 14px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(result.message, centerX, menuY + 40);
+            this.ctx.fillStyle = '#888';
+            this.ctx.font = '12px monospace';
+            this.ctx.fillText('Press any key to continue...', centerX, menuY + 70);
+        } else if (combat.phase === MultiCombatPhase.Victory) {
+            this.ctx.fillStyle = '#0f0';
+            this.ctx.font = 'bold 24px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('** SWARM DEFEATED! **', centerX, menuY + 50);
+        } else if (combat.phase === MultiCombatPhase.Defeat) {
+            this.ctx.fillStyle = '#f00';
+            this.ctx.font = 'bold 24px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('** OVERWHELMED **', centerX, menuY + 50);
+        }
+
+        // ========== COMBAT LOG ==========
+        this.ctx.fillStyle = 'rgba(20, 20, 30, 0.9)';
+        this.ctx.fillRect(20, 340, this.canvas.width - 40, 100);
+
+        this.ctx.fillStyle = '#aaa';
+        this.ctx.font = '11px monospace';
+        this.ctx.textAlign = 'left';
+        let logY = 355;
+        for (let i = combat.log.length - 1; i >= Math.max(0, combat.log.length - 6); i--) {
+            this.ctx.fillText(combat.log[i], 30, logY);
+            logY += 14;
+        }
+
+        // Draw effects
+        for (const effect of combat.effects) {
+            const alpha = effect.life / effect.maxLife;
+            this.ctx.fillStyle = effect.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+            this.ctx.font = 'bold 30px monospace';
+            this.ctx.textAlign = 'center';
+
+            if (effect.type === 'hit' || effect.type === 'execute') {
+                this.ctx.fillText('*HIT*', effect.x, effect.y);
+            } else if (effect.type === 'fireball') {
+                this.ctx.fillText('~BURN~', effect.x, effect.y);
+            } else if (effect.type === 'heal') {
+                this.ctx.fillText('+HP', effect.x, effect.y);
+            } else if (effect.type === 'premonition') {
+                this.ctx.fillText('(o)', effect.x, effect.y);
+            }
+        }
+
         this.ctx.textAlign = 'left';
     }
 
@@ -1204,8 +1455,201 @@ export class Renderer {
         this.ctx.fillText('Create custom classes at /editor', centerX, this.canvas.height - 20);
     }
 
-    drawNotifications(notifications: Array<{ message: string; timestamp: number; duration: number }>) {
+    drawSkillTree(
+        tree: { classId: string; name: string; color: string; nodes: Array<{ id: string; name: string; description: string; icon: string; tier: number; cost: number; maxRanks: number; requires: string[]; effect: any }> },
+        playerSkills: Map<string, number>,
+        selectedIndex: number,
+        skillPoints: number,
+        isSecondary: boolean,
+        hasSecondaryClass: boolean
+    ) {
+        this.ctx.fillStyle = 'rgba(10, 10, 30, 0.95)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Title
+        this.ctx.fillStyle = tree.color;
+        this.ctx.font = 'bold 24px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(`-- ${tree.name.toUpperCase()} SKILL TREE --`, this.canvas.width / 2, 35);
+
+        // Skill points
+        this.ctx.fillStyle = '#ff0';
+        this.ctx.font = '14px monospace';
+        this.ctx.fillText(`Skill Points: ${skillPoints}`, this.canvas.width / 2, 55);
+
+        // Show secondary toggle hint
+        if (hasSecondaryClass) {
+            this.ctx.fillStyle = '#888';
+            this.ctx.fillText(`[Q] Switch to ${isSecondary ? 'Primary' : 'Secondary'} Tree`, this.canvas.width / 2, 70);
+        }
+
+        // Organize nodes by tier
+        const tiers: Map<number, typeof tree.nodes> = new Map();
+        for (const node of tree.nodes) {
+            if (!tiers.has(node.tier)) tiers.set(node.tier, []);
+            tiers.get(node.tier)!.push(node);
+        }
+
+        const tierWidth = 150;
+        const startX = 50;
+        const startY = 90;
+        const nodeHeight = 60;
+
+        let nodeIdx = 0;
+        for (let tier = 1; tier <= 5; tier++) {
+            const tierNodes = tiers.get(tier) || [];
+            const tierX = startX + (tier - 1) * tierWidth;
+
+            // Tier header
+            this.ctx.fillStyle = '#666';
+            this.ctx.font = '10px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(`Tier ${tier}`, tierX + 60, startY - 5);
+
+            tierNodes.forEach((node, i) => {
+                const nodeY = startY + i * nodeHeight;
+                const isSelected = nodeIdx === selectedIndex;
+                const currentRanks = playerSkills.get(node.id) || 0;
+                const isMaxed = currentRanks >= node.maxRanks;
+
+                // Check if requirements are met
+                let reqMet = true;
+                for (const reqId of node.requires) {
+                    if (!playerSkills.get(reqId)) {
+                        reqMet = false;
+                        break;
+                    }
+                }
+
+                // Draw connection lines to requirements
+                this.ctx.strokeStyle = reqMet ? '#444' : '#222';
+                this.ctx.lineWidth = 2;
+                for (const reqId of node.requires) {
+                    const reqNode = tree.nodes.find(n => n.id === reqId);
+                    if (reqNode) {
+                        const reqTierNodes = tiers.get(reqNode.tier) || [];
+                        const reqNodeIdx = reqTierNodes.indexOf(reqNode);
+                        const reqX = startX + (reqNode.tier - 1) * tierWidth + 60;
+                        const reqY = startY + reqNodeIdx * nodeHeight + 25;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(tierX, nodeY + 25);
+                        this.ctx.lineTo(reqX + 60, reqY);
+                        this.ctx.stroke();
+                    }
+                }
+
+                // Node background
+                const boxWidth = 120;
+                const boxHeight = 50;
+                this.ctx.fillStyle = isSelected ? 'rgba(68, 170, 255, 0.3)' : 'rgba(40, 40, 60, 0.8)';
+                if (isMaxed) this.ctx.fillStyle = 'rgba(0, 100, 0, 0.3)';
+                if (!reqMet) this.ctx.fillStyle = 'rgba(30, 30, 30, 0.8)';
+                this.ctx.fillRect(tierX, nodeY, boxWidth, boxHeight);
+
+                // Border
+                this.ctx.strokeStyle = isSelected ? '#4af' : (isMaxed ? '#0f0' : (reqMet ? tree.color : '#333'));
+                this.ctx.lineWidth = isSelected ? 2 : 1;
+                this.ctx.strokeRect(tierX, nodeY, boxWidth, boxHeight);
+
+                // Icon
+                this.ctx.fillStyle = reqMet ? '#fff' : '#666';
+                this.ctx.font = '16px monospace';
+                this.ctx.textAlign = 'left';
+                this.ctx.fillText(node.icon, tierX + 5, nodeY + 20);
+
+                // Name
+                this.ctx.fillStyle = reqMet ? '#fff' : '#666';
+                this.ctx.font = '12px monospace';
+                this.ctx.fillText(node.name.substring(0, 12), tierX + 25, nodeY + 18);
+
+                // Ranks
+                this.ctx.fillStyle = isMaxed ? '#0f0' : '#888';
+                this.ctx.font = '10px monospace';
+                this.ctx.fillText(`${currentRanks}/${node.maxRanks}`, tierX + 25, nodeY + 32);
+
+                // Cost
+                this.ctx.fillStyle = skillPoints >= node.cost ? '#ff0' : '#f00';
+                this.ctx.fillText(`Cost: ${node.cost}`, tierX + 70, nodeY + 32);
+
+                // Description (only for selected)
+                if (isSelected) {
+                    this.ctx.fillStyle = '#fff';
+                    this.ctx.font = '12px monospace';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText(node.description, this.canvas.width / 2, this.canvas.height - 60);
+
+                    // Requirements
+                    if (node.requires.length > 0) {
+                        const reqNames = node.requires.map(r => tree.nodes.find(n => n.id === r)?.name || r).join(', ');
+                        this.ctx.fillStyle = reqMet ? '#0f0' : '#f00';
+                        this.ctx.fillText(`Requires: ${reqNames}`, this.canvas.width / 2, this.canvas.height - 45);
+                    }
+                }
+
+                nodeIdx++;
+            });
+        }
+
+        // Footer
+        this.ctx.fillStyle = '#666';
+        this.ctx.font = '12px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('[↑↓] Navigate | [ENTER] Learn | [ESC] Close', this.canvas.width / 2, this.canvas.height - 15);
+    }
+
+    drawMulticlassMenu(options: string[], selectedIndex: number, currentClass: string) {
+        this.ctx.fillStyle = 'rgba(10, 10, 30, 0.95)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Title
+        this.ctx.fillStyle = '#ff0';
+        this.ctx.font = 'bold 24px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('-- MULTICLASS --', this.canvas.width / 2, 50);
+
+        this.ctx.fillStyle = '#aaa';
+        this.ctx.font = '14px monospace';
+        this.ctx.fillText(`Current Class: ${currentClass}`, this.canvas.width / 2, 80);
+        this.ctx.fillText('Choose your secondary class:', this.canvas.width / 2, 110);
+
+        // Class options
+        const startY = 150;
+        options.forEach((option, i) => {
+            const isSelected = i === selectedIndex;
+            const y = startY + i * 50;
+
+            this.ctx.fillStyle = isSelected ? 'rgba(68, 170, 255, 0.3)' : 'rgba(40, 40, 60, 0.8)';
+            this.ctx.fillRect(this.canvas.width / 2 - 100, y - 15, 200, 40);
+
+            this.ctx.strokeStyle = isSelected ? '#4af' : '#666';
+            this.ctx.lineWidth = isSelected ? 2 : 1;
+            this.ctx.strokeRect(this.canvas.width / 2 - 100, y - 15, 200, 40);
+
+            this.ctx.fillStyle = isSelected ? '#fff' : '#aaa';
+            this.ctx.font = isSelected ? 'bold 18px monospace' : '16px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(option.charAt(0).toUpperCase() + option.slice(1).replace('_', ' '), this.canvas.width / 2, y + 8);
+        });
+
+        // Info
+        this.ctx.fillStyle = '#888';
+        this.ctx.font = '12px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Secondary class skills are 75% effective', this.canvas.width / 2, this.canvas.height - 60);
+        this.ctx.fillText('[↑↓] Select | [ENTER] Confirm | [ESC] Cancel', this.canvas.width / 2, this.canvas.height - 30);
+    }
+
+    drawNotifications(notifications: Array<{ message: string; timestamp: number; duration: number }>, enabled: boolean = true) {
         if (notifications.length === 0) return;
+
+        // Show toggle hint
+        if (!enabled) {
+            this.ctx.fillStyle = 'rgba(100, 100, 100, 0.5)';
+            this.ctx.font = '10px monospace';
+            this.ctx.textAlign = 'right';
+            this.ctx.fillText('[N] Notifications OFF', this.canvas.width - 10, 20);
+            return;
+        }
 
         const now = Date.now();
         const centerX = this.canvas.width / 2;
