@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-    base: './', // This ensures assets are loaded relative to index.html
+    base: '/Deluge-2/', // Base path for GitHub Pages (repo name)
     server: {
         host: true
     },
